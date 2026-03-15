@@ -17,16 +17,19 @@ from pachca_bot.config import (
 )
 from pachca_bot.handlers.generic import handle_generic_event
 from pachca_bot.handlers.github import handle_github_event
+from pachca_bot.models.messages import StructuredMessage
 from pachca_bot.models.webhooks import (
     GenericWebhookPayload,
     GitHubWebhookPayload,
     WebhookResponse,
 )
+from pachca_bot.pr_tracker import PRTracker
 from pachca_bot.security import verify_bearer_token, verify_github_signature
 
 logger = logging.getLogger(__name__)
 
 _pachca_client: PachcaClient | None = None
+_pr_tracker: PRTracker | None = None
 
 
 def _get_client() -> PachcaClient:
@@ -34,15 +37,22 @@ def _get_client() -> PachcaClient:
     return _pachca_client
 
 
+def _get_pr_tracker() -> PRTracker:
+    assert _pr_tracker is not None, "PRTracker not initialised"
+    return _pr_tracker
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _pachca_client
+    global _pachca_client, _pr_tracker
     settings = get_settings()
     _pachca_client = PachcaClient(settings)
+    _pr_tracker = PRTracker(_pachca_client)
     logger.info("Pachca bot started — chat_id=%s", settings.pachca_chat_id)
     yield
     _pachca_client.close()
     _pachca_client = None
+    _pr_tracker = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -81,15 +91,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 raise HTTPException(status_code=403, detail="Invalid signature")
 
         payload = GitHubWebhookPayload.model_validate_json(body)
-        structured = handle_github_event(x_github_event, payload)
+        result = handle_github_event(x_github_event, payload, pr_tracker=_get_pr_tracker())
 
-        if structured is None:
+        if result is None:
             return WebhookResponse(ok=True, detail="Event ignored")
 
-        client = _get_client()
-        content = structured.render()
-        result = client.send_message(content, display_name=DISPLAY_NAME_GITHUB)
-        return WebhookResponse(ok=True, message_id=result.get("id"), detail="Message sent")
+        if isinstance(result, dict):
+            return WebhookResponse(
+                ok=True,
+                message_id=result.get("id"),
+                detail="PR updated" if result.get("id") else "PR handled",
+            )
+
+        if isinstance(result, StructuredMessage):
+            client = _get_client()
+            content = result.render()
+            api_result = client.send_message(content, display_name=DISPLAY_NAME_GITHUB)
+            return WebhookResponse(ok=True, message_id=api_result.get("id"), detail="Message sent")
+
+        return WebhookResponse(ok=True, detail="Event handled")
 
     # ------------------------------------------------------------------
     # Generic webhook

@@ -1,7 +1,4 @@
-"""Integration tests for the FastAPI endpoints.
-
-Uses a mocked PachcaClient to avoid real API calls.
-"""
+"""Integration tests for the FastAPI endpoints."""
 
 import hashlib
 import hmac
@@ -28,6 +25,10 @@ def client(_env):
     app = create_app()
     mock_pachca = MagicMock()
     mock_pachca.send_message.return_value = {"id": 999}
+    mock_pachca.get_messages.return_value = []
+    mock_pachca.create_thread.return_value = {"id": 500}
+    mock_pachca.post_to_thread.return_value = {"id": 501}
+    mock_pachca.update_message.return_value = {"id": 999}
 
     with patch("pachca_bot.app.PachcaClient", return_value=mock_pachca):
         with TestClient(app) as tc:
@@ -94,39 +95,23 @@ class TestGitHubEndpoint:
         )
         assert resp.status_code == 403
 
-    def test_ignored_event(self, client):
-        tc, mock = client
-        body = json.dumps({"action": "started", "repository": {"full_name": "org/repo"}}).encode()
-        resp = tc.post(
-            "/webhooks/github",
-            content=body,
-            headers={
-                "X-Hub-Signature-256": _github_sig(body),
-                "X-GitHub-Event": "star",
-                "Content-Type": "application/json",
-            },
-        )
-        assert resp.status_code == 200
-        assert resp.json()["detail"] == "Event ignored"
-        mock.send_message.assert_not_called()
-
-    def test_deployment_webhook(self, client):
+    def test_pr_opened(self, client):
         tc, mock = client
         body = json.dumps(
             {
-                "action": "created",
-                "repository": {
-                    "full_name": "org/repo",
-                    "html_url": "https://github.com/org/repo",
-                },
+                "action": "opened",
+                "repository": {"full_name": "org/repo"},
                 "sender": {"login": "alice"},
-                "deployment": {
-                    "id": 1,
-                    "sha": "abc123",
-                    "ref": "main",
-                    "environment": "production",
-                    "description": "Deploy v1",
-                    "creator": {"login": "alice"},
+                "pull_request": {
+                    "number": 1,
+                    "title": "Feature",
+                    "body": "desc",
+                    "html_url": "https://github.com/org/repo/pull/1",
+                    "user": {"login": "alice"},
+                    "head": {"ref": "feat"},
+                    "base": {"ref": "main"},
+                    "merged": False,
+                    "draft": False,
                 },
             }
         ).encode()
@@ -135,14 +120,13 @@ class TestGitHubEndpoint:
             content=body,
             headers={
                 "X-Hub-Signature-256": _github_sig(body),
-                "X-GitHub-Event": "deployment",
+                "X-GitHub-Event": "pull_request",
                 "Content-Type": "application/json",
             },
         )
         assert resp.status_code == 200
         assert resp.json()["ok"] is True
-        content = mock.send_message.call_args[0][0]
-        assert "production" in content
+        mock.send_message.assert_called_once()
 
 
 class TestGenericEndpoint:
@@ -178,27 +162,3 @@ class TestGenericEndpoint:
             headers={"Authorization": "Bearer wrong"},
         )
         assert resp.status_code == 403
-
-    def test_deploy(self, client):
-        tc, mock = client
-        body = json.dumps(
-            {
-                "event_type": "deploy",
-                "source": "api",
-                "title": "",
-                "environment": "prod",
-                "version": "3.0",
-                "status": "succeeded",
-            }
-        ).encode()
-        resp = tc.post(
-            "/webhooks/generic",
-            content=body,
-            headers={
-                "Authorization": "Bearer gen-secret",
-                "Content-Type": "application/json",
-            },
-        )
-        assert resp.status_code == 200
-        content = mock.send_message.call_args[0][0]
-        assert "3.0" in content

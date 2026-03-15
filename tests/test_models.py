@@ -8,11 +8,12 @@ from pachca_bot.models.messages import (
     GenericDeployMessage,
     GitHubCheckFailureMessage,
     GitHubDeploymentMessage,
-    GitHubPullRequestMessage,
+    GitHubPRMessage,
     GitHubReleaseMessage,
     HeaderBlock,
     LinkBlock,
     ListBlock,
+    PRStatus,
     QuoteBlock,
     Severity,
     StructuredMessage,
@@ -73,35 +74,39 @@ class TestStructuredMessage:
         assert StructuredMessage().render() == ""
 
 
-class TestTemplateMessages:
-    def test_release_message_has_hyperlinks(self):
+class TestReleaseMessage:
+    def test_has_hyperlinks_no_tag_field(self):
         m = GitHubReleaseMessage(
             repo="org/repo",
             tag="v1.0.0",
             release_name="Release 1.0",
             author="alice",
-            url="https://github.com/org/repo/releases/v1.0.0",
+            url="https://github.com/org/repo/releases/tag/v1.0.0",
             body="changelog here",
         )
         rendered = m.to_structured().render()
-        assert "[v1.0.0](https://github.com/org/repo/releases/v1.0.0)" in rendered
+        assert "[Release 1.0](https://github.com/org/repo/releases/tag/v1.0.0)" in rendered
         assert "[org/repo](https://github.com/org/repo)" in rendered
         assert "[alice](https://github.com/alice)" in rendered
         assert "changelog here" in rendered
+        assert "**Tag:**" not in rendered
+        assert "`v1.0.0`" not in rendered
 
-    def test_prerelease_message(self):
+    def test_prerelease(self):
         m = GitHubReleaseMessage(
             repo="org/repo",
             tag="v2.0.0-rc1",
             release_name="RC1",
             author="bob",
-            url="https://github.com/org/repo/releases/v2.0.0-rc1",
+            url="https://github.com/org/repo/releases/tag/v2.0.0-rc1",
             prerelease=True,
         )
         rendered = m.to_structured().render()
         assert "pre-release" in rendered
 
-    def test_check_failure_has_hyperlinks(self):
+
+class TestCheckFailureMessage:
+    def test_has_hyperlinks(self):
         m = GitHubCheckFailureMessage(
             repo="org/repo",
             workflow_name="CI",
@@ -118,41 +123,52 @@ class TestTemplateMessages:
         assert "[main](https://github.com/org/repo/tree/main)" in rendered
         assert "[alice](https://github.com/alice)" in rendered
 
-    def test_pr_opened_has_hyperlinks(self):
-        m = GitHubPullRequestMessage(
+
+class TestPRMessage:
+    def _make_pr(self, status: PRStatus = PRStatus.OPEN) -> GitHubPRMessage:
+        return GitHubPRMessage(
             repo="org/repo",
-            action="opened",
             number=42,
             title="Fix bug",
             author="alice",
             url="https://github.com/org/repo/pull/42",
             base_branch="main",
             head_branch="fix-bug",
+            body="Description",
+            status=status,
         )
-        rendered = m.to_structured().render()
-        assert "#42" in rendered
-        assert "Fix bug" in rendered
+
+    def test_parent_has_hyperlinks(self):
+        pr = self._make_pr()
+        rendered = pr.to_parent()
+        assert "[#42](https://github.com/org/repo/pull/42)" in rendered
+        assert "[org/repo](https://github.com/org/repo)" in rendered
+        assert "[alice](https://github.com/alice)" in rendered
         assert "[fix-bug](https://github.com/org/repo/tree/fix-bug)" in rendered
         assert "[main](https://github.com/org/repo/tree/main)" in rendered
-        assert "[alice](https://github.com/alice)" in rendered
-        assert "[org/repo](https://github.com/org/repo)" in rendered
+        assert "→" in rendered
 
-    def test_pr_merged(self):
-        m = GitHubPullRequestMessage(
-            repo="org/repo",
-            action="closed",
-            number=42,
-            title="Feature",
-            author="bob",
-            url="https://github.com/org/repo/pull/42",
-            base_branch="main",
-            head_branch="feat",
-            merged=True,
-        )
-        rendered = m.to_structured().render()
-        assert "merged" in rendered
+    def test_parent_status_emoji(self):
+        for status in PRStatus:
+            pr = self._make_pr(status)
+            rendered = pr.to_parent()
+            assert status.emoji in rendered
+            assert status.label in rendered
 
-    def test_deployment_message(self):
+    def test_thread_update(self):
+        pr = self._make_pr(PRStatus.READY_FOR_REVIEW)
+        update = pr.to_thread_update(old_status=PRStatus.OPEN)
+        assert PRStatus.OPEN.emoji in update
+        assert PRStatus.READY_FOR_REVIEW.emoji in update
+
+    def test_thread_update_no_old_status(self):
+        pr = self._make_pr(PRStatus.OPEN)
+        update = pr.to_thread_update()
+        assert PRStatus.OPEN.emoji in update
+
+
+class TestDeploymentMessage:
+    def test_has_hyperlinks(self):
         m = GitHubDeploymentMessage(
             repo="org/repo",
             environment="production",
@@ -169,20 +185,9 @@ class TestTemplateMessages:
         assert "[main](https://github.com/org/repo/tree/main)" in rendered
         assert "[alice](https://github.com/alice)" in rendered
 
-    def test_deployment_pending(self):
-        m = GitHubDeploymentMessage(
-            repo="org/repo",
-            environment="staging",
-            state="pending",
-            creator="bot",
-            sha="def789",
-            ref="v1.0",
-        )
-        rendered = m.to_structured().render()
-        assert "pending" in rendered
-        assert "staging" in rendered
 
-    def test_generic_alert(self):
+class TestGenericMessages:
+    def test_alert(self):
         m = GenericAlertMessage(
             source="vm-prod",
             title="Disk usage high",
@@ -196,7 +201,7 @@ class TestTemplateMessages:
         assert "vm-prod" in rendered
         assert "90%" in rendered
 
-    def test_generic_deploy_no_backticks(self):
+    def test_deploy_no_backticks(self):
         m = GenericDeployMessage(
             source="api-service",
             environment="production",

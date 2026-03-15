@@ -14,11 +14,7 @@ from pachca_bot.models.messages import Severity
 
 
 class GenericWebhookPayload(BaseModel):
-    """Payload for the abstract webhook endpoint.
-
-    Callers send a JSON body with an event type and structured fields.
-    The bot formats it and posts to Pachca.
-    """
+    """Payload for the abstract webhook endpoint."""
 
     event_type: str = Field(
         ...,
@@ -83,12 +79,9 @@ class _GitHubCheckRun(BaseModel, extra="allow"):
     check_suite: _GitHubCheckSuite = Field(default_factory=_GitHubCheckSuite)
 
 
-class _GitHubPRHead(BaseModel, extra="allow"):
+class _GitHubPRRef(BaseModel, extra="allow"):
     ref: str = ""
-
-
-class _GitHubPRBase(BaseModel, extra="allow"):
-    ref: str = ""
+    sha: str = ""
 
 
 class _GitHubPR(BaseModel, extra="allow"):
@@ -96,11 +89,43 @@ class _GitHubPR(BaseModel, extra="allow"):
     title: str = ""
     body: str | None = ""
     html_url: str = ""
+    state: str = ""
     user: _GitHubUser = Field(default_factory=_GitHubUser)
-    head: _GitHubPRHead = Field(default_factory=_GitHubPRHead)
-    base: _GitHubPRBase = Field(default_factory=_GitHubPRBase)
+    head: _GitHubPRRef = Field(default_factory=_GitHubPRRef)
+    base: _GitHubPRRef = Field(default_factory=_GitHubPRRef)
     merged: bool = False
     draft: bool = False
+    mergeable_state: str | None = None
+
+
+class _GitHubLabel(BaseModel, extra="allow"):
+    name: str = ""
+
+
+class _GitHubReview(BaseModel, extra="allow"):
+    state: str = ""
+    user: _GitHubUser = Field(default_factory=_GitHubUser)
+
+
+class _GitHubCheckSuiteTop(BaseModel, extra="allow"):
+    """Top-level check_suite object in check_suite events."""
+
+    id: int = 0
+    head_branch: str = ""
+    head_sha: str = ""
+    status: str = ""
+    conclusion: str | None = None
+    pull_requests: list[_GitHubCheckSuitePR] = Field(default_factory=list)
+
+
+class _GitHubCheckSuitePR(BaseModel, extra="allow"):
+    """Minimal PR reference inside a check_suite payload."""
+
+    number: int = 0
+
+
+# Resolve forward reference
+_GitHubCheckSuiteTop.model_rebuild()
 
 
 class _GitHubDeployment(BaseModel, extra="allow"):
@@ -130,9 +155,12 @@ class GitHubWebhookPayload(BaseModel, extra="allow"):
     release: _GitHubRelease | None = None
     workflow_run: _GitHubWorkflowRun | None = None
     check_run: _GitHubCheckRun | None = None
+    check_suite: _GitHubCheckSuiteTop | None = None
     pull_request: _GitHubPR | None = None
     deployment: _GitHubDeployment | None = None
     deployment_status: _GitHubDeploymentStatus | None = None
+    review: _GitHubReview | None = None
+    label: _GitHubLabel | None = None
 
     raw: dict[str, Any] = Field(default_factory=dict, exclude=True)
 

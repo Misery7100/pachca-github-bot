@@ -1,27 +1,32 @@
 """GitHub webhook event handler.
 
 Translates GitHub webhook payloads into structured Pachca messages.
-Supports: releases, check_run / workflow_run failures, pull_request events,
-deployment / deployment_status events.
+Supports: releases, check_run / workflow_run failures, pull_request lifecycle,
+check_suite (for PR check status), deployment / deployment_status events.
 """
 
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from pachca_bot.models.messages import (
     FieldsBlock,
     GitHubCheckFailureMessage,
     GitHubDeploymentMessage,
-    GitHubPullRequestMessage,
+    GitHubPRMessage,
     GitHubReleaseMessage,
     HeaderBlock,
+    PRStatus,
     Severity,
     StructuredMessage,
     TextBlock,
     _gh_repo_link,
 )
 from pachca_bot.models.webhooks import GitHubWebhookPayload
+
+if TYPE_CHECKING:
+    from pachca_bot.pr_tracker import PRTracker
 
 logger = logging.getLogger(__name__)
 
@@ -30,27 +35,38 @@ SUPPORTED_EVENTS = {
     "check_run",
     "workflow_run",
     "pull_request",
+    "check_suite",
     "deployment",
     "deployment_status",
 }
 
-_INTERESTING_PR_ACTIONS = {
-    "opened",
-    "closed",
-    "reopened",
-    "ready_for_review",
-    "review_requested",
+_PR_ACTIONS_TO_STATUS: dict[str, PRStatus | None] = {
+    "opened": None,
+    "reopened": PRStatus.OPEN,
+    "closed": None,
+    "ready_for_review": PRStatus.READY_FOR_REVIEW,
+    "converted_to_draft": PRStatus.DRAFT,
 }
+
+
+def _resolve_pr_status(action: str, merged: bool, draft: bool) -> PRStatus | None:
+    """Map a pull_request webhook action to a PRStatus."""
+    if action == "opened":
+        return PRStatus.DRAFT if draft else PRStatus.OPEN
+    if action == "closed":
+        return PRStatus.MERGED if merged else PRStatus.CLOSED
+    return _PR_ACTIONS_TO_STATUS.get(action)
 
 
 def handle_github_event(
     event_type: str,
     payload: GitHubWebhookPayload,
-) -> StructuredMessage | None:
+    pr_tracker: PRTracker | None = None,
+) -> StructuredMessage | dict | None:
     """Route a GitHub event to the appropriate message builder.
 
-    Returns ``None`` when the event should be silently ignored
-    (e.g. a successful check run, or an unsupported event type).
+    For PR events, returns a dict (handled by PRTracker directly).
+    For other events, returns a StructuredMessage or None.
     """
     repo = payload.repository.full_name
 
@@ -99,11 +115,12 @@ def handle_github_event(
 
     if event_type == "pull_request" and payload.pull_request is not None:
         pr = payload.pull_request
-        if payload.action not in _INTERESTING_PR_ACTIONS:
+        status = _resolve_pr_status(payload.action, pr.merged, pr.draft)
+        if status is None:
             return None
-        return GitHubPullRequestMessage(
+
+        pr_msg = GitHubPRMessage(
             repo=repo,
-            action=payload.action,
             number=pr.number,
             title=pr.title,
             author=pr.user.login or payload.sender.login,
@@ -111,9 +128,35 @@ def handle_github_event(
             base_branch=pr.base.ref,
             head_branch=pr.head.ref,
             body=pr.body or "",
-            merged=pr.merged,
-            draft=pr.draft,
-        ).to_structured()
+            status=status,
+        )
+
+        if pr_tracker is not None:
+            return pr_tracker.handle_pr_event(pr_msg)
+
+        return StructuredMessage().add(TextBlock(text=pr_msg.to_parent()))
+
+    if event_type == "check_suite" and payload.check_suite is not None:
+        cs = payload.check_suite
+        if payload.action != "completed" or cs.conclusion != "success":
+            return None
+        if not cs.pull_requests or pr_tracker is None:
+            return None
+
+        result = None
+        for pr_ref in cs.pull_requests:
+            pr_msg = GitHubPRMessage(
+                repo=repo,
+                number=pr_ref.number,
+                title="",
+                author="",
+                url=f"https://github.com/{repo}/pull/{pr_ref.number}",
+                base_branch="",
+                head_branch="",
+                status=PRStatus.CHECKS_PASSED,
+            )
+            result = pr_tracker.handle_pr_event(pr_msg)
+        return result
 
     if event_type in ("deployment", "deployment_status") and payload.deployment is not None:
         dep = payload.deployment

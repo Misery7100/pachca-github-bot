@@ -30,8 +30,12 @@ def _gh_commit_link(repo: str, sha: str) -> str:
     return f"[{sha[:8]}]({GITHUB_BASE}/{repo}/commit/{sha})"
 
 
-def _gh_release_link(url: str, tag: str) -> str:
-    return f"[{tag}]({url})"
+def _gh_release_link(url: str, label: str) -> str:
+    return f"[{label}]({url})"
+
+
+def _gh_pr_link(repo: str, number: int) -> str:
+    return f"[#{number}]({GITHUB_BASE}/{repo}/pull/{number})"
 
 
 class Severity(str, Enum):
@@ -50,6 +54,42 @@ class Severity(str, Enum):
             Severity.ERROR: "❌",
             Severity.CRITICAL: "🔥",
         }[self]
+
+
+class PRStatus(str, Enum):
+    DRAFT = "draft"
+    OPEN = "open"
+    READY_FOR_REVIEW = "ready_for_review"
+    CHECKS_PASSED = "checks_passed"
+    MERGED = "merged"
+    CLOSED = "closed"
+
+    @property
+    def emoji(self) -> str:
+        return {
+            PRStatus.DRAFT: "📝",
+            PRStatus.OPEN: "🆕",
+            PRStatus.READY_FOR_REVIEW: "👀",
+            PRStatus.CHECKS_PASSED: "✅",
+            PRStatus.MERGED: "🟣",
+            PRStatus.CLOSED: "🚫",
+        }[self]
+
+    @property
+    def label(self) -> str:
+        return {
+            PRStatus.DRAFT: "Draft",
+            PRStatus.OPEN: "Open",
+            PRStatus.READY_FOR_REVIEW: "Ready for review",
+            PRStatus.CHECKS_PASSED: "Ready to merge",
+            PRStatus.MERGED: "Merged",
+            PRStatus.CLOSED: "Closed",
+        }[self]
+
+
+# ---------------------------------------------------------------------------
+# Block primitives
+# ---------------------------------------------------------------------------
 
 
 class MessageBlock(BaseModel):
@@ -97,12 +137,7 @@ class LinkBlock(MessageBlock):
 
 
 class FieldsBlock(MessageBlock):
-    """Key-value table rendered as a bold-label list.
-
-    Example output:
-        **Status:** failure
-        **Branch:** main
-    """
+    """Key-value table rendered as a bold-label list."""
 
     fields: dict[str, str]
 
@@ -170,7 +205,7 @@ class StructuredMessage(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Pre-built parametrized message templates
+# GitHub message templates
 # ---------------------------------------------------------------------------
 
 
@@ -188,8 +223,8 @@ class GitHubReleaseMessage(BaseModel):
     def to_structured(self) -> StructuredMessage:
         severity = Severity.WARNING if self.prerelease else Severity.SUCCESS
         pre = "(pre-release) " if self.prerelease else ""
-        tag_link = _gh_release_link(self.url, self.tag)
-        header = f"{severity.emoji} Release {pre}{tag_link}"
+        release_link = _gh_release_link(self.url, self.release_name)
+        header = f"{severity.emoji} Release {pre}{release_link}"
 
         msg = StructuredMessage()
         msg.add(HeaderBlock(text=header, level=2))
@@ -197,15 +232,13 @@ class GitHubReleaseMessage(BaseModel):
             FieldsBlock(
                 fields={
                     "Repository": _gh_repo_link(self.repo),
-                    "Release": _gh_release_link(self.url, self.release_name),
-                    "Tag": _gh_release_link(self.url, self.tag),
+                    "Release": _gh_release_link(self.url, self.tag),
                     "Author": _gh_user_link(self.author),
                 }
             )
         )
         if self.body:
             msg.add(QuoteBlock(text=self.body[:1000]))
-        msg.add(LinkBlock(text="View release", url=self.url))
         return msg
 
 
@@ -239,49 +272,56 @@ class GitHubCheckFailureMessage(BaseModel):
         return msg
 
 
-class GitHubPullRequestMessage(BaseModel):
-    """GitHub pull request event → Pachca message."""
+class GitHubPRMessage(BaseModel):
+    """GitHub pull request — used as both parent message and thread updates."""
 
     repo: str
-    action: str
     number: int
     title: str
     author: str
     url: str
     base_branch: str
     head_branch: str
+    status: PRStatus
     body: str = ""
-    merged: bool = False
-    draft: bool = False
 
-    def to_structured(self) -> StructuredMessage:
-        action_emojis = {
-            "opened": "🆕",
-            "closed": "✅" if self.merged else "🚫",
-            "reopened": "🔄",
-            "ready_for_review": "👀",
-            "review_requested": "👁️",
-        }
-        emoji = action_emojis.get(self.action, "🔔")
-        verb = "merged" if self.merged and self.action == "closed" else self.action
-        header = f"{emoji} PR #{self.number} {verb}: {self.title}"
+    def _status_line(self) -> str:
+        return f"{self.status.emoji} {self.status.label}"
+
+    def to_parent(self) -> str:
+        """Render the parent message content (gets updated on each status change)."""
+        pr_link = _gh_pr_link(self.repo, self.number)
+        header = f"{self.status.emoji} PR {pr_link} {self.status.label}: {self.title}"
 
         msg = StructuredMessage()
         msg.add(HeaderBlock(text=header, level=2))
         head_link = _gh_branch_link(self.repo, self.head_branch)
         base_link = _gh_branch_link(self.repo, self.base_branch)
-        fields: dict[str, str] = {
-            "Repository": _gh_repo_link(self.repo),
-            "Author": _gh_user_link(self.author),
-            "Branch": f"{head_link} → {base_link}",
-        }
-        if self.draft:
-            fields["Draft"] = "yes"
-        msg.add(FieldsBlock(fields=fields))
+        msg.add(
+            FieldsBlock(
+                fields={
+                    "Repository": _gh_repo_link(self.repo),
+                    "Author": _gh_user_link(self.author),
+                    "Branch": f"{head_link} → {base_link}",
+                    "Status": self._status_line(),
+                }
+            )
+        )
         if self.body:
-            msg.add(QuoteBlock(text=self.body[:1000]))
+            msg.add(QuoteBlock(text=self.body[:500]))
         msg.add(LinkBlock(text="View pull request", url=self.url))
-        return msg
+        return msg.render()
+
+    def to_thread_update(self, old_status: PRStatus | None = None) -> str:
+        """Render a short thread reply for a status transition."""
+        parts: list[str] = []
+        if old_status:
+            parts.append(
+                f"{old_status.emoji} {old_status.label} → {self.status.emoji} {self.status.label}"
+            )
+        else:
+            parts.append(self._status_line())
+        return "\n".join(parts)
 
 
 class GitHubDeploymentMessage(BaseModel):
@@ -330,6 +370,11 @@ class GitHubDeploymentMessage(BaseModel):
         if self.url:
             msg.add(LinkBlock(text="View deployment", url=self.url))
         return msg
+
+
+# ---------------------------------------------------------------------------
+# Generic message templates
+# ---------------------------------------------------------------------------
 
 
 class GenericAlertMessage(BaseModel):
