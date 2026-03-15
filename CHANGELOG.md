@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ...
 
-## [v0.1.1] - 2026-03-15
+## [0.1.1] - 2026-03-15
 
 ### Changed
 
@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Docker** — build wheel and install instead of editable install so `pachca_bot` module is available in the final image
 
-## [v0.1.0] - 2026-03-15
+## [0.1.0] - 2026-03-15
 
 ### Added
 
@@ -59,5 +59,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project scaffolding** — pyproject.toml (uv, FastAPI, pydantic, pachca), .gitignore, LICENSE (MIT), README with setup and usage docs
 
 [unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.1...HEAD
-[v0.1.1]: https://github.com/Misery7100/pachca-bot/compare/v0.1.0...v0.1.1
-[v0.1.0]: https://github.com/Misery7100/pachca-bot/releases/tag/v0.1.0
+[0.1.1]: https://github.com/Misery7100/pachca-bot/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Misery7100/pachca-bot/releases/tag/v0.1.0
