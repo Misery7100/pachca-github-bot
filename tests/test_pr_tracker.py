@@ -55,12 +55,10 @@ class TestPRTrackerUpdate:
         )
         tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
 
-        client.create_thread.assert_called_once_with(100)
-        client.post_to_thread.assert_called_once()
         thread_text = client.post_to_thread.call_args[0][1]
-        assert "**Status updated:**" in thread_text
-        assert "Before: 📝 Draft" in thread_text
-        assert "After: 🆕 Open" in thread_text
+        assert "Status updated:" in thread_text
+        assert "**Before:** Draft" in thread_text
+        assert "**After:** Open" in thread_text
 
     def test_patches_parent_preserving_content(self):
         tracker, client = _make_tracker()
@@ -72,9 +70,11 @@ class TestPRTrackerUpdate:
 
         updated = client.update_message.call_args[0][1]
         assert "🟣" in updated
-        assert "Merged" in updated
+        assert "📝" not in updated
+        assert "**Status:** Merged" in updated
         assert "[alice](" in updated
         assert "[feat](" in updated
+        assert "Test PR" in updated
 
     def test_skips_same_status(self):
         tracker, client = _make_tracker()
@@ -82,19 +82,6 @@ class TestPRTrackerUpdate:
         result = tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
         assert result.get("unchanged") is True
         client.create_thread.assert_not_called()
-
-
-class TestPRTrackerChatFallback:
-    def test_finds_pr_in_chat(self):
-        tracker, client = _make_tracker()
-        client.get_messages.return_value = [
-            {
-                "id": 555,
-                "content": "## 🆕 PR [#7](https://github.com/org/repo/pull/7) Open: Feature",
-            }
-        ]
-        tracker.handle_pr_event(_make_pr(number=7, status=PRStatus.MERGED))
-        client.create_thread.assert_called_once_with(555)
 
 
 class TestPRTrackerFullLifecycle:

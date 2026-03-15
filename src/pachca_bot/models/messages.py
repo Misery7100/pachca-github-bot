@@ -14,8 +14,9 @@ from pydantic import BaseModel, Field
 
 GITHUB_BASE = "https://github.com"
 
-_PR_HEADER_RE = re.compile(r"^(## .+ PR \[#\d+\]\([^)]+\)) .+$", re.MULTILINE)
-_PR_STATUS_FIELD_RE = re.compile(r"^\*\*Status:\*\* .+$", re.MULTILINE)
+# Matches the leading emoji (any single emoji cluster) at the start of a ## header
+_HEADER_EMOJI_RE = re.compile(r"^(## )\S+( )", re.MULTILINE)
+_STATUS_FIELD_RE = re.compile(r"^\*\*Status:\*\* .+$", re.MULTILINE)
 
 
 def _gh_user_link(login: str) -> str:
@@ -109,10 +110,6 @@ class DeployStatus(str, Enum):
     @property
     def label(self) -> str:
         return self.value.replace("_", " ").title()
-
-
-_DEPLOY_STATUS_FIELD_RE = re.compile(r"^\*\*Status:\*\* .+$", re.MULTILINE)
-_DEPLOY_HEADER_RE = re.compile(r"^(## [^ ]+ Deploy) .+$", re.MULTILINE)
 
 
 # ---------------------------------------------------------------------------
@@ -211,21 +208,19 @@ class StructuredMessage(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Status update thread format (shared by PR and deploy trackers)
+# Shared helpers
 # ---------------------------------------------------------------------------
 
 
-def render_status_update(
-    before_emoji: str,
-    before_label: str,
-    after_emoji: str,
-    after_label: str,
-) -> str:
-    return (
-        f"**Status updated:**\n"
-        f"Before: {before_emoji} {before_label}\n"
-        f"After: {after_emoji} {after_label}"
-    )
+def render_status_update(before_label: str, after_label: str) -> str:
+    return f"Status updated:\n\n**Before:** {before_label}\n**After:** {after_label}"
+
+
+def patch_status_in_content(content: str, new_emoji: str, new_label: str) -> str:
+    """Replace the leading emoji in the header and the Status field value."""
+    result = _HEADER_EMOJI_RE.sub(rf"\g<1>{new_emoji}\2", content, count=1)
+    result = _STATUS_FIELD_RE.sub(f"**Status:** {new_label}", result)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -258,14 +253,12 @@ class GitHubReleaseMessage(BaseModel):
             )
         )
         if self.body:
-            msg.add(QuoteBlock(text=self.body[:1000]))
+            msg.add(TextBlock(text=self.body[:1000]))
         msg.add(LinkBlock(text="View release", url=self.url))
         return msg
 
 
 class GitHubCIMessage(BaseModel):
-    """CI check/workflow result — can be posted to channel or PR thread."""
-
     workflow_name: str
     commit_sha: str
     repo: str
@@ -302,57 +295,32 @@ class GitHubPRMessage(BaseModel):
 
     def to_parent(self) -> str:
         pr_link = _gh_pr_link(self.repo, self.number)
-        header = f"{self.status.emoji} PR {pr_link} {self.status.label}: {self.title}"
+        header = f"{self.status.emoji} PR {pr_link}: {self.title}"
 
         msg = StructuredMessage()
         msg.add(HeaderBlock(text=header, level=2))
         head_link = _gh_branch_link(self.repo, self.head_branch)
         base_link = _gh_branch_link(self.repo, self.base_branch)
-        msg.add(
-            FieldsBlock(
-                fields={
-                    "Repository": _gh_repo_link(self.repo),
-                    "Author": _gh_user_link(self.author),
-                    "Branch": f"{head_link} → {base_link}",
-                }
-            )
-        )
+        fields: dict[str, str] = {
+            "Repository": _gh_repo_link(self.repo),
+            "Author": _gh_user_link(self.author),
+            "Branch": f"{head_link} → {base_link}",
+            "Status": self.status.label,
+        }
+        msg.add(FieldsBlock(fields=fields))
         if self.body:
-            msg.add(QuoteBlock(text=self.body[:500]))
+            msg.add(TextBlock(text=self.body[:500]))
         msg.add(LinkBlock(text="View pull request", url=self.url))
         return msg.render()
 
     def to_thread_update(self, old_status: PRStatus | None = None) -> str:
         if old_status:
-            return render_status_update(
-                old_status.emoji,
-                old_status.label,
-                self.status.emoji,
-                self.status.label,
-            )
+            return render_status_update(old_status.label, self.status.label)
         return f"{self.status.emoji} {self.status.label}"
 
     @staticmethod
     def patch_parent_status(content: str, new_status: PRStatus) -> str:
-        """Update only the status-related parts of an existing parent message."""
-        new_status_text = f"{new_status.emoji} {new_status.label}"
-
-        result = _PR_HEADER_RE.sub(
-            lambda m: f"{m.group(1)} {new_status_text}: ",
-            content,
-        )
-        result = _PR_STATUS_FIELD_RE.sub(
-            f"**Status:** {new_status_text}",
-            result,
-        )
-        for old in PRStatus:
-            if old == new_status:
-                continue
-            old_prefix = f"## {old.emoji} PR"
-            new_prefix = f"## {new_status.emoji} PR"
-            result = result.replace(old_prefix, new_prefix, 1)
-
-        return result
+        return patch_status_in_content(content, new_status.emoji, new_status.label)
 
 
 class GitHubDeploymentMessage(BaseModel):
@@ -377,7 +345,7 @@ class GitHubDeploymentMessage(BaseModel):
         }
         emoji = state_emoji.get(self.state, "🚀")
         state_label = self.state or "created"
-        header = f"{emoji} Deployment {state_label}: {self.environment}"
+        header = f"{emoji} Deployment: {self.environment}"
 
         msg = StructuredMessage()
         msg.add(HeaderBlock(text=header, level=2))
@@ -391,8 +359,7 @@ class GitHubDeploymentMessage(BaseModel):
             fields["Commit"] = _gh_commit_link(self.repo, self.sha)
         if self.creator:
             fields["Deployed by"] = _gh_user_link(self.creator)
-        if self.state:
-            fields["Status"] = state_label
+        fields["Status"] = state_label
         msg.add(FieldsBlock(fields=fields))
         if self.description:
             msg.add(TextBlock(text=self.description))
@@ -439,7 +406,7 @@ class GenericDeployMessage(BaseModel):
     changelog: list[str] = Field(default_factory=list)
 
     def to_parent(self) -> str:
-        header = f"{self.status.emoji} Deploy {self.status.label}: {self.source}"
+        header = f"{self.status.emoji} Deployment: {self.source}"
         msg = StructuredMessage()
         msg.add(HeaderBlock(text=header, level=2))
         fields: dict[str, str] = {}
@@ -447,9 +414,10 @@ class GenericDeployMessage(BaseModel):
             fields["ID"] = self.deploy_id
         fields["Environment"] = self.environment
         fields["Version"] = self.version
-        msg.add(FieldsBlock(fields=fields))
+        fields["Status"] = self.status.label
         if self.actor:
-            msg.add(FieldsBlock(fields={"Deployed by": self.actor}))
+            fields["Deployed by"] = self.actor
+        msg.add(FieldsBlock(fields=fields))
         if self.changelog:
             msg.add(ListBlock(items=self.changelog))
         if self.url:
@@ -457,18 +425,8 @@ class GenericDeployMessage(BaseModel):
         return msg.render()
 
     def to_thread_update(self, old_status: DeployStatus) -> str:
-        return render_status_update(
-            old_status.emoji,
-            old_status.label,
-            self.status.emoji,
-            self.status.label,
-        )
+        return render_status_update(old_status.label, self.status.label)
 
     @staticmethod
     def patch_parent_status(content: str, new_status: DeployStatus) -> str:
-        new_label = f"{new_status.emoji} Deploy {new_status.label}:"
-        result = _DEPLOY_HEADER_RE.sub(
-            lambda m: new_label,
-            content,
-        )
-        return result
+        return patch_status_in_content(content, new_status.emoji, new_status.label)

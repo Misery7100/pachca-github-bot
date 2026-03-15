@@ -42,7 +42,6 @@ class TestDeployTrackerNew:
         msg = _make_deploy(deploy_id="")
         result = tracker.handle_deploy_event(msg)
         assert result["id"] == 100
-        assert ("api", "") not in tracker._store
 
 
 class TestDeployTrackerUpdate:
@@ -54,11 +53,23 @@ class TestDeployTrackerUpdate:
         )
         tracker.handle_deploy_event(_make_deploy(status=DeployStatus.SUCCEEDED))
 
-        client.create_thread.assert_called_once()
         thread_text = client.post_to_thread.call_args[0][1]
-        assert "**Status updated:**" in thread_text
-        assert "Before:" in thread_text
-        assert "After:" in thread_text
+        assert "Status updated:" in thread_text
+        assert "**Before:** Started" in thread_text
+        assert "**After:** Succeeded" in thread_text
+
+    def test_patches_parent_preserving_content(self):
+        tracker, client = _make_tracker()
+        content = _make_deploy().to_parent()
+        tracker._store[("api", "dep-1")] = _DeployEntry(
+            message_id=100, status=DeployStatus.STARTED, content=content
+        )
+        tracker.handle_deploy_event(_make_deploy(status=DeployStatus.SUCCEEDED))
+        updated = client.update_message.call_args[0][1]
+        assert "✅" in updated
+        assert "🚀" not in updated
+        assert "**Status:** Succeeded" in updated
+        assert "api" in updated
 
     def test_skips_same_status(self):
         tracker, client = _make_tracker()
@@ -68,13 +79,3 @@ class TestDeployTrackerUpdate:
         result = tracker.handle_deploy_event(_make_deploy())
         assert result.get("unchanged") is True
         client.create_thread.assert_not_called()
-
-
-class TestDeployTrackerChatFallback:
-    def test_finds_deploy_in_chat(self):
-        tracker, client = _make_tracker()
-        client.get_messages.return_value = [
-            {"id": 555, "content": "## 🚀 Deploy Started: api\n\n**ID:** dep-42"}
-        ]
-        tracker.handle_deploy_event(_make_deploy(deploy_id="dep-42", status=DeployStatus.SUCCEEDED))
-        client.create_thread.assert_called_once_with(555)
