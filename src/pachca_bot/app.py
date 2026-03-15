@@ -9,12 +9,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Header, HTTPException, Request
 
 from pachca_bot.client import PachcaClient
-from pachca_bot.config import (
-    DISPLAY_NAME_GENERIC,
-    DISPLAY_NAME_GITHUB,
-    Settings,
-    get_settings,
-)
+from pachca_bot.config import Settings, get_settings
 from pachca_bot.deploy_tracker import DeployTracker
 from pachca_bot.gh_deploy_tracker import GHDeployTracker
 from pachca_bot.handlers.generic import handle_generic_event
@@ -46,10 +41,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     global _pachca_client, _pr_tracker, _deploy_tracker, _gh_deploy_tracker
     settings = get_settings()
     _pachca_client = PachcaClient(settings)
-    _pr_tracker = PRTracker(_pachca_client)
-    _deploy_tracker = DeployTracker(_pachca_client)
-    _gh_deploy_tracker = GHDeployTracker(_pachca_client)
-    logger.info("Pachca bot started — chat_id=%s", settings.pachca_chat_id)
+    gh_int = settings.github_integration()
+    gen_int = settings.generic_integration()
+    _pr_tracker = PRTracker(_pachca_client, gh_int) if gh_int else None
+    _deploy_tracker = DeployTracker(_pachca_client, gen_int) if gen_int else None
+    _gh_deploy_tracker = GHDeployTracker(_pachca_client, gh_int) if gh_int else None
+    logger.info(
+        "Pachca bot started — github_chat_id=%s, generic_chat_id=%s",
+        gh_int.chat_id if gh_int else "—",
+        gen_int.chat_id if gen_int else "—",
+    )
     yield
     _pachca_client.close()
     _pachca_client = None
@@ -107,8 +108,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         if isinstance(result, StructuredMessage):
             client = _get_client()
+            settings = get_settings()
+            gh = settings.github_integration()
+            if gh is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "GitHub integration not configured "
+                        "(GITHUB_PACHCA_CHAT_ID or PACHCA_CHAT_ID required)"
+                    ),
+                )
             content = result.render()
-            api_result = client.send_message(content, display_name=DISPLAY_NAME_GITHUB)
+            api_result = client.send_message(
+                content,
+                display_name=gh.display_name,
+                display_avatar_url=gh.display_avatar_url,
+                chat_id=gh.chat_id,
+            )
             return WebhookResponse(
                 ok=True,
                 message_id=api_result.get("id"),
@@ -143,8 +159,23 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             )
 
         client = _get_client()
+        settings = get_settings()
+        gen = settings.generic_integration()
+        if gen is None:
+            raise HTTPException(
+                status_code=503,
+                detail=(
+                    "Generic integration not configured "
+                    "(GENERIC_PACHCA_CHAT_ID or PACHCA_CHAT_ID required)"
+                ),
+            )
         content = result.render()
-        api_result = client.send_message(content, display_name=DISPLAY_NAME_GENERIC)
+        api_result = client.send_message(
+            content,
+            display_name=gen.display_name,
+            display_avatar_url=gen.display_avatar_url,
+            chat_id=gen.chat_id,
+        )
         return WebhookResponse(
             ok=True,
             message_id=api_result.get("id"),

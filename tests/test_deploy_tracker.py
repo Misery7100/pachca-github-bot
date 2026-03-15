@@ -2,8 +2,15 @@
 
 from unittest.mock import MagicMock
 
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.deploy_tracker import DeployTracker, _DeployEntry
 from pachca_bot.models.messages import DeployStatus, GenericDeployMessage
+
+_GEN_INTEGRATION = IntegrationConfig(
+    chat_id=12345,
+    display_name="Events Bot",
+    display_avatar_url="https://example.com/events.png",
+)
 
 
 def _make_tracker() -> tuple[DeployTracker, MagicMock]:
@@ -13,7 +20,7 @@ def _make_tracker() -> tuple[DeployTracker, MagicMock]:
     client.create_thread.return_value = {"id": 200}
     client.post_to_thread.return_value = {"id": 201}
     client.update_message.return_value = {"id": 100}
-    return DeployTracker(client), client
+    return DeployTracker(client, _GEN_INTEGRATION), client
 
 
 def _make_deploy(

@@ -15,7 +15,7 @@ import logging
 from dataclasses import dataclass
 
 from pachca_bot.client import PachcaClient
-from pachca_bot.config import DISPLAY_NAME_GITHUB
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.models.messages import GitHubPRMessage, PRStatus
 
 logger = logging.getLogger(__name__)
@@ -31,8 +31,9 @@ class _PREntry:
 class PRTracker:
     """In-memory PR → Pachca message tracker with chat-search fallback."""
 
-    def __init__(self, client: PachcaClient) -> None:
+    def __init__(self, client: PachcaClient, integration: IntegrationConfig) -> None:
         self._client = client
+        self._integration = integration
         self._store: dict[tuple[str, int], _PREntry] = {}
 
     def _make_key(self, repo: str, number: int) -> tuple[str, int]:
@@ -40,7 +41,7 @@ class PRTracker:
 
     def _search_chat_for_pr(self, repo: str, number: int) -> _PREntry | None:
         try:
-            messages = self._client.get_messages()
+            messages = self._client.get_messages(self._integration.chat_id)
         except Exception:
             logger.warning("Failed to fetch chat messages for PR lookup", exc_info=True)
             return None
@@ -77,7 +78,12 @@ class PRTracker:
 
     def _create_new(self, key: tuple[str, int], pr_msg: GitHubPRMessage) -> dict:
         content = pr_msg.to_parent()
-        result = self._client.send_message(content, display_name=DISPLAY_NAME_GITHUB)
+        result = self._client.send_message(
+            content,
+            display_name=self._integration.display_name,
+            display_avatar_url=self._integration.display_avatar_url,
+            chat_id=self._integration.chat_id,
+        )
         msg_id = result.get("id")
         if msg_id:
             self._store[key] = _PREntry(message_id=msg_id, status=pr_msg.status, content=content)
@@ -110,7 +116,10 @@ class PRTracker:
             if thread_id:
                 thread_content = pr_msg.to_thread_update(old_status=old_status)
                 self._client.post_to_thread(
-                    thread_id, thread_content, display_name=DISPLAY_NAME_GITHUB
+                    thread_id,
+                    thread_content,
+                    display_name=self._integration.display_name,
+                    display_avatar_url=self._integration.display_avatar_url,
                 )
         except Exception:
             logger.warning("Failed to post thread update for PR #%s", pr_msg.number, exc_info=True)

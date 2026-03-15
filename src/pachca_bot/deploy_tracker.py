@@ -11,7 +11,7 @@ import logging
 from dataclasses import dataclass
 
 from pachca_bot.client import PachcaClient
-from pachca_bot.config import DISPLAY_NAME_GENERIC
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.models.messages import DeployStatus, GenericDeployMessage
 
 logger = logging.getLogger(__name__)
@@ -27,8 +27,9 @@ class _DeployEntry:
 class DeployTracker:
     """In-memory deploy → Pachca message tracker with chat-search fallback."""
 
-    def __init__(self, client: PachcaClient) -> None:
+    def __init__(self, client: PachcaClient, integration: IntegrationConfig) -> None:
         self._client = client
+        self._integration = integration
         self._store: dict[tuple[str, str], _DeployEntry] = {}
 
     def _make_key(self, source: str, deploy_id: str) -> tuple[str, str]:
@@ -36,7 +37,7 @@ class DeployTracker:
 
     def _search_chat_for_deploy(self, deploy_id: str) -> _DeployEntry | None:
         try:
-            messages = self._client.get_messages()
+            messages = self._client.get_messages(self._integration.chat_id)
         except Exception:
             logger.warning("Failed to fetch chat messages for deploy lookup", exc_info=True)
             return None
@@ -63,7 +64,12 @@ class DeployTracker:
     def handle_deploy_event(self, deploy_msg: GenericDeployMessage) -> dict:
         if not deploy_msg.deploy_id:
             content = deploy_msg.to_parent()
-            return self._client.send_message(content, display_name=DISPLAY_NAME_GENERIC)
+            return self._client.send_message(
+                content,
+                display_name=self._integration.display_name,
+                display_avatar_url=self._integration.display_avatar_url,
+                chat_id=self._integration.chat_id,
+            )
 
         key = self._make_key(deploy_msg.source, deploy_msg.deploy_id)
         entry = self._store.get(key)
@@ -76,7 +82,12 @@ class DeployTracker:
 
         if entry is None:
             content = deploy_msg.to_parent()
-            result = self._client.send_message(content, display_name=DISPLAY_NAME_GENERIC)
+            result = self._client.send_message(
+                content,
+                display_name=self._integration.display_name,
+                display_avatar_url=self._integration.display_avatar_url,
+                chat_id=self._integration.chat_id,
+            )
             msg_id = result.get("id")
             if msg_id:
                 self._store[key] = _DeployEntry(
@@ -94,7 +105,10 @@ class DeployTracker:
             if thread_id:
                 thread_content = deploy_msg.to_thread_update(old_status)
                 self._client.post_to_thread(
-                    thread_id, thread_content, display_name=DISPLAY_NAME_GENERIC
+                    thread_id,
+                    thread_content,
+                    display_name=self._integration.display_name,
+                    display_avatar_url=self._integration.display_avatar_url,
                 )
         except Exception:
             logger.warning("Failed to post deploy thread update", exc_info=True)
@@ -112,7 +126,12 @@ class DeployTracker:
         except Exception:
             logger.warning("Failed to update deploy parent, creating new one", exc_info=True)
             new_content = deploy_msg.to_parent()
-            result = self._client.send_message(new_content, display_name=DISPLAY_NAME_GENERIC)
+            result = self._client.send_message(
+                new_content,
+                display_name=self._integration.display_name,
+                display_avatar_url=self._integration.display_avatar_url,
+                chat_id=self._integration.chat_id,
+            )
             msg_id = result.get("id")
             if msg_id:
                 self._store[key] = _DeployEntry(

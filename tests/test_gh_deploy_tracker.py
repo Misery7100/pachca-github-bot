@@ -2,8 +2,15 @@
 
 from unittest.mock import MagicMock
 
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.gh_deploy_tracker import GHDeployTracker, _GHDeployEntry
 from pachca_bot.models.messages import GHDeployState, GitHubDeploymentMessage
+
+_GH_INTEGRATION = IntegrationConfig(
+    chat_id=12345,
+    display_name="GitHub Bot",
+    display_avatar_url="https://example.com/gh.png",
+)
 
 
 def _make_tracker() -> tuple[GHDeployTracker, MagicMock]:
@@ -13,7 +20,7 @@ def _make_tracker() -> tuple[GHDeployTracker, MagicMock]:
     client.create_thread.return_value = {"id": 200}
     client.post_to_thread.return_value = {"id": 201}
     client.update_message.return_value = {"id": 100}
-    return GHDeployTracker(client), client
+    return GHDeployTracker(client, _GH_INTEGRATION), client
 
 
 def _make_deploy(state: str = "pending") -> GitHubDeploymentMessage:

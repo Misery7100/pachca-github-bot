@@ -9,7 +9,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from pachca_bot.app import create_app
-from pachca_bot.config import DISPLAY_NAME_GENERIC, DISPLAY_NAME_GITHUB
 
 
 @pytest.fixture()
@@ -73,7 +72,7 @@ class TestGitHubEndpoint:
             },
         )
         assert resp.status_code == 200
-        assert mock.send_message.call_args[1]["display_name"] == DISPLAY_NAME_GITHUB
+        assert mock.send_message.call_args[1]["display_name"] == "GitHub Bot"
 
     def test_invalid_signature(self, client):
         tc, _ = client
@@ -138,7 +137,7 @@ class TestGenericEndpoint:
             },
         )
         assert resp.status_code == 200
-        assert mock.send_message.call_args[1]["display_name"] == DISPLAY_NAME_GENERIC
+        assert mock.send_message.call_args[1]["display_name"] == "Events Bot"
 
     def test_unauthorized(self, client):
         tc, _ = client

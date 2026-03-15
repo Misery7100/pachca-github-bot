@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from pachca_bot.config import DISPLAY_NAME_GITHUB
 from pachca_bot.models.messages import (
     FieldsBlock,
     GitHubCIMessage,
@@ -69,7 +68,8 @@ def _try_post_ci_to_pr_thread(
             pr_tracker._client.post_to_thread(
                 thread_id,
                 ci_msg_for_thread.to_structured().render(),
-                display_name=DISPLAY_NAME_GITHUB,
+                display_name=pr_tracker._integration.display_name,
+                display_avatar_url=pr_tracker._integration.display_avatar_url,
             )
             return True
     return False

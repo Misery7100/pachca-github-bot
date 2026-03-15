@@ -24,12 +24,19 @@ All settings are read from environment variables:
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `PACHCA_ACCESS_TOKEN` | yes | — | Pachca API bot token |
-| `PACHCA_CHAT_ID` | yes | — | Target chat/channel ID |
+| `PACHCA_CHAT_ID` | no* | — | Fallback chat ID when integration-specific ID not set |
+| `GITHUB_PACHCA_CHAT_ID` | no* | — | Target chat for GitHub integration |
+| `GENERIC_PACHCA_CHAT_ID` | no* | — | Target chat for generic integration |
 | `GITHUB_WEBHOOK_SECRET` | no | `""` | GitHub HMAC secret (skips verification if empty) |
 | `GENERIC_WEBHOOK_SECRET` | no | `""` | Bearer token for generic endpoint (skips auth if empty) |
-| `BOT_DISPLAY_AVATAR_URL` | no | — | Avatar URL for bot messages |
+| `GITHUB_BOT_DISPLAY_NAME` | no | `"GitHub Bot"` | Display name for GitHub messages |
+| `GENERIC_BOT_DISPLAY_NAME` | no | `"Events Bot"` | Display name for generic messages |
+| `GITHUB_BOT_DISPLAY_AVATAR_URL` | no | [default](https://raw.githubusercontent.com/Misery7100/pachca-bot/main/images/github-bot.png) | Avatar URL for GitHub messages |
+| `GENERIC_BOT_DISPLAY_AVATAR_URL` | no | [default](https://raw.githubusercontent.com/Misery7100/pachca-bot/main/images/events-bot.png) | Avatar URL for generic messages |
 | `HOST` | no | `0.0.0.0` | Server bind address |
 | `PORT` | no | `8000` | Server bind port |
+
+\* At least one of `PACHCA_CHAT_ID`, `GITHUB_PACHCA_CHAT_ID`, or `GENERIC_PACHCA_CHAT_ID` must be set. Use `PACHCA_CHAT_ID` alone for both integrations, or set integration-specific IDs to route GitHub and generic events to different chats.
 
 ## Endpoints
 
@@ -48,12 +55,21 @@ All settings are read from environment variables:
 Deploy the bot somewhere publicly accessible (e.g. a VPS, cloud VM, or container platform). The bot listens on port `8000` by default.
 
 ```bash
-# Using Docker
+# Using Docker (single chat for both integrations)
 docker build -t pachca-bot .
 docker run -d --name pachca-bot -p 8000:8000 \
     -e PACHCA_ACCESS_TOKEN="your-pachca-bot-token" \
     -e PACHCA_CHAT_ID="your-chat-id" \
     -e GITHUB_WEBHOOK_SECRET="your-secret-here" \
+    pachca-bot
+
+# Or use separate chats per integration
+docker run -d --name pachca-bot -p 8000:8000 \
+    -e PACHCA_ACCESS_TOKEN="your-pachca-bot-token" \
+    -e GITHUB_PACHCA_CHAT_ID="github-chat-id" \
+    -e GENERIC_PACHCA_CHAT_ID="generic-chat-id" \
+    -e GITHUB_WEBHOOK_SECRET="your-secret-here" \
+    -e GENERIC_WEBHOOK_SECRET="your-generic-secret" \
     pachca-bot
 ```
 

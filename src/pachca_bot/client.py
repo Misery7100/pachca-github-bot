@@ -30,11 +30,12 @@ class PachcaClient:
         self,
         content: str,
         display_name: str = "",
+        display_avatar_url: str | None = None,
         chat_id: int | None = None,
     ) -> dict:
         """Post a markdown message to the configured Pachca chat."""
         client = self._ensure_client()
-        target_chat = chat_id or self._settings.pachca_chat_id
+        target_chat = chat_id
 
         kwargs: dict = {
             "entity_id": target_chat,
@@ -43,8 +44,8 @@ class PachcaClient:
         }
         if display_name:
             kwargs["display_name"] = display_name
-        if self._settings.bot_display_avatar_url:
-            kwargs["display_avatar_url"] = self._settings.bot_display_avatar_url
+        if display_avatar_url:
+            kwargs["display_avatar_url"] = display_avatar_url
 
         result = client.create_message(**kwargs)
         logger.info("Message sent to chat %s (id=%s)", target_chat, result.get("id"))
@@ -73,6 +74,7 @@ class PachcaClient:
         thread_id: int,
         content: str,
         display_name: str = "",
+        display_avatar_url: str | None = None,
     ) -> dict:
         """Post a message to an existing thread."""
         client = self._ensure_client()
@@ -83,18 +85,17 @@ class PachcaClient:
         }
         if display_name:
             kwargs["display_name"] = display_name
-        if self._settings.bot_display_avatar_url:
-            kwargs["display_avatar_url"] = self._settings.bot_display_avatar_url
+        if display_avatar_url:
+            kwargs["display_avatar_url"] = display_avatar_url
 
         result = client.create_message(**kwargs)
         logger.info("Thread reply sent (thread=%s, id=%s)", thread_id, result.get("id"))
         return result
 
-    def get_messages(self, chat_id: int | None = None) -> list[dict]:
+    def get_messages(self, chat_id: int) -> list[dict]:
         """Retrieve recent messages from a chat."""
         client = self._ensure_client()
-        target_chat = chat_id or self._settings.pachca_chat_id
-        return client.get_messages(chat_id=target_chat)
+        return client.get_messages(chat_id=chat_id)
 
     def close(self) -> None:
         if self._client is not None:

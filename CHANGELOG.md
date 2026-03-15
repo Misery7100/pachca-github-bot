@@ -15,9 +15,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ...
 
+### Removed
+
+- ...
+
 ### Fixed
 
 - ...
+
+## [0.1.2] - 2026-03-15
+
+### Added
+
+- **Namespaced chat IDs** — `GITHUB_PACHCA_CHAT_ID` and `GENERIC_PACHCA_CHAT_ID` for per-integration target chats; `PACHCA_CHAT_ID` remains as fallback when integration-specific ID not set
+- **Per-integration bot display name** — `GITHUB_BOT_DISPLAY_NAME` (default: "GitHub Bot") and `GENERIC_BOT_DISPLAY_NAME` (default: "Events Bot")
+- **Per-integration bot avatar URL** — `GITHUB_BOT_DISPLAY_AVATAR_URL` and `GENERIC_BOT_DISPLAY_AVATAR_URL` with built-in defaults for GitHub and generic avatars
+
+### Changed
+
+- **Configuration** — Replaced single `PACHCA_CHAT_ID` + `BOT_DISPLAY_AVATAR_URL` with namespaced settings to support future integrations and separate chat routing
 
 ## [0.1.1] - 2026-03-15
 
@@ -58,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test suite** — pytest tests for app, handlers, models, security, PR tracker, deploy trackers
 - **Project scaffolding** — pyproject.toml (uv, FastAPI, pydantic, pachca), .gitignore, LICENSE (MIT), README with setup and usage docs
 
-[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/Misery7100/pachca-bot/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/Misery7100/pachca-bot/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Misery7100/pachca-bot/releases/tag/v0.1.0

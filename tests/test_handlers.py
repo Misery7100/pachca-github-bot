@@ -2,11 +2,18 @@
 
 from unittest.mock import MagicMock
 
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.handlers.generic import handle_generic_event
 from pachca_bot.handlers.github import handle_github_event
 from pachca_bot.models.messages import PRStatus, Severity, StructuredMessage
 from pachca_bot.models.webhooks import GenericWebhookPayload, GitHubWebhookPayload
 from pachca_bot.pr_tracker import PRTracker
+
+_GH_INTEGRATION = IntegrationConfig(
+    chat_id=12345,
+    display_name="GitHub Bot",
+    display_avatar_url="https://example.com/gh.png",
+)
 
 
 def _make_mock_tracker() -> PRTracker:
@@ -16,7 +23,7 @@ def _make_mock_tracker() -> PRTracker:
     client.create_thread.return_value = {"id": 200}
     client.post_to_thread.return_value = {"id": 201}
     client.update_message.return_value = {"id": 100}
-    return PRTracker(client)
+    return PRTracker(client, _GH_INTEGRATION)
 
 
 class TestGitHubHandler:
@@ -73,7 +80,7 @@ class TestGitHubHandler:
         client = MagicMock()
         client.send_message.return_value = {"id": 300}
         client.get_messages.return_value = []
-        gh_tracker = GHDeployTracker(client)
+        gh_tracker = GHDeployTracker(client, _GH_INTEGRATION)
 
         payload = GitHubWebhookPayload.model_validate(
             {

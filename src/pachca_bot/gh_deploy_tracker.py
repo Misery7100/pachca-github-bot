@@ -9,7 +9,7 @@ import logging
 from dataclasses import dataclass
 
 from pachca_bot.client import PachcaClient
-from pachca_bot.config import DISPLAY_NAME_GITHUB
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.models.messages import GHDeployState, GitHubDeploymentMessage
 
 logger = logging.getLogger(__name__)
@@ -25,8 +25,9 @@ class _GHDeployEntry:
 class GHDeployTracker:
     """In-memory GitHub deployment tracker with chat-search fallback."""
 
-    def __init__(self, client: PachcaClient) -> None:
+    def __init__(self, client: PachcaClient, integration: IntegrationConfig) -> None:
         self._client = client
+        self._integration = integration
         self._store: dict[tuple[str, str], _GHDeployEntry] = {}
 
     def _make_key(self, repo: str, environment: str) -> tuple[str, str]:
@@ -34,7 +35,7 @@ class GHDeployTracker:
 
     def _search_chat(self, environment: str) -> _GHDeployEntry | None:
         try:
-            messages = self._client.get_messages()
+            messages = self._client.get_messages(self._integration.chat_id)
         except Exception:
             logger.warning("Failed to fetch messages for GH deploy lookup", exc_info=True)
             return None
@@ -72,7 +73,12 @@ class GHDeployTracker:
 
         if entry is None:
             content = deploy_msg.to_parent()
-            result = self._client.send_message(content, display_name=DISPLAY_NAME_GITHUB)
+            result = self._client.send_message(
+                content,
+                display_name=self._integration.display_name,
+                display_avatar_url=self._integration.display_avatar_url,
+                chat_id=self._integration.chat_id,
+            )
             msg_id = result.get("id")
             if msg_id:
                 self._store[key] = _GHDeployEntry(
@@ -90,7 +96,10 @@ class GHDeployTracker:
             if thread_id:
                 thread_content = deploy_msg.to_thread_update(old_state)
                 self._client.post_to_thread(
-                    thread_id, thread_content, display_name=DISPLAY_NAME_GITHUB
+                    thread_id,
+                    thread_content,
+                    display_name=self._integration.display_name,
+                    display_avatar_url=self._integration.display_avatar_url,
                 )
         except Exception:
             logger.warning("Failed to post GH deploy thread update", exc_info=True)
@@ -106,7 +115,12 @@ class GHDeployTracker:
         except Exception:
             logger.warning("Failed to update GH deploy parent, creating new", exc_info=True)
             new_content = deploy_msg.to_parent()
-            result = self._client.send_message(new_content, display_name=DISPLAY_NAME_GITHUB)
+            result = self._client.send_message(
+                new_content,
+                display_name=self._integration.display_name,
+                display_avatar_url=self._integration.display_avatar_url,
+                chat_id=self._integration.chat_id,
+            )
             msg_id = result.get("id")
             if msg_id:
                 self._store[key] = _GHDeployEntry(

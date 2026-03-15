@@ -2,8 +2,15 @@
 
 from unittest.mock import MagicMock
 
+from pachca_bot.config import IntegrationConfig
 from pachca_bot.models.messages import GitHubPRMessage, PRStatus
 from pachca_bot.pr_tracker import PRTracker, _PREntry
+
+_GH_INTEGRATION = IntegrationConfig(
+    chat_id=12345,
+    display_name="GitHub Bot",
+    display_avatar_url="https://example.com/gh.png",
+)
 
 
 def _make_tracker() -> tuple[PRTracker, MagicMock]:
@@ -13,7 +20,7 @@ def _make_tracker() -> tuple[PRTracker, MagicMock]:
     client.create_thread.return_value = {"id": 200}
     client.post_to_thread.return_value = {"id": 201}
     client.update_message.return_value = {"id": 100}
-    return PRTracker(client), client
+    return PRTracker(client, _GH_INTEGRATION), client
 
 
 def _make_pr(number: int = 1, status: PRStatus = PRStatus.OPEN) -> GitHubPRMessage:
