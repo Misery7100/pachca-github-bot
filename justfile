@@ -22,5 +22,3 @@ docker-run tag="pachca-bot:latest":
         -e GITHUB_WEBHOOK_SECRET \
         -e GENERIC_WEBHOOK_SECRET \
         {{tag}}
-
-check: lint test

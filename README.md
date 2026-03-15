@@ -27,8 +27,8 @@ All settings are read from environment variables:
 | `PACHCA_CHAT_ID` | no* | — | Fallback chat ID when integration-specific ID not set |
 | `GITHUB_PACHCA_CHAT_ID` | no* | — | Target chat for GitHub integration |
 | `GENERIC_PACHCA_CHAT_ID` | no* | — | Target chat for generic integration |
-| `GITHUB_WEBHOOK_SECRET` | no | `""` | GitHub HMAC secret (skips verification if empty) |
-| `GENERIC_WEBHOOK_SECRET` | no | `""` | Bearer token for generic endpoint (skips auth if empty) |
+| `GITHUB_WEBHOOK_SECRET` | yes* | — | GitHub HMAC secret (required for `/webhooks/github`) |
+| `GENERIC_WEBHOOK_SECRET` | yes* | — | Bearer token for generic endpoint (required for `/webhooks/generic`) |
 | `GITHUB_BOT_DISPLAY_NAME` | no | `"GitHub Bot"` | Display name for GitHub messages |
 | `GENERIC_BOT_DISPLAY_NAME` | no | `"Events Bot"` | Display name for generic messages |
 | `GITHUB_BOT_DISPLAY_AVATAR_URL` | no | [default](https://raw.githubusercontent.com/Misery7100/pachca-bot/main/images/github-bot.png) | Avatar URL for GitHub messages |
@@ -36,7 +36,7 @@ All settings are read from environment variables:
 | `HOST` | no | `0.0.0.0` | Server bind address |
 | `PORT` | no | `8000` | Server bind port |
 
-\* At least one of `PACHCA_CHAT_ID`, `GITHUB_PACHCA_CHAT_ID`, or `GENERIC_PACHCA_CHAT_ID` must be set. Use `PACHCA_CHAT_ID` alone for both integrations, or set integration-specific IDs to route GitHub and generic events to different chats.
+\* At least one of `PACHCA_CHAT_ID`, `GITHUB_PACHCA_CHAT_ID`, or `GENERIC_PACHCA_CHAT_ID` must be set. Use `PACHCA_CHAT_ID` alone for both integrations, or set integration-specific IDs to route GitHub and generic events to different chats. `GITHUB_WEBHOOK_SECRET` and `GENERIC_WEBHOOK_SECRET` are required for their respective endpoints — requests are rejected with 403 if the secret is not configured.
 
 ## Endpoints
 

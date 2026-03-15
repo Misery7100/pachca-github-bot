@@ -87,6 +87,23 @@ class TestGitHubEndpoint:
         )
         assert resp.status_code == 403
 
+    def test_github_secret_not_configured(self, monkeypatch):
+        monkeypatch.setenv("PACHCA_ACCESS_TOKEN", "test-token")
+        monkeypatch.setenv("PACHCA_CHAT_ID", "12345")
+        monkeypatch.delenv("GITHUB_WEBHOOK_SECRET", raising=False)
+        monkeypatch.setenv("GENERIC_WEBHOOK_SECRET", "gen-secret")
+        app = create_app()
+        mock_pachca = MagicMock()
+        with patch("pachca_bot.app.PachcaClient", return_value=mock_pachca):
+            with TestClient(app) as tc:
+                resp = tc.post(
+                    "/webhooks/github",
+                    content=b'{"action":"published","repository":{"full_name":"x"},"release":{"tag_name":"v1","name":"v1","html_url":"u","author":{"login":"a"}}}',
+                    headers={"X-Hub-Signature-256": "sha256=x", "X-GitHub-Event": "release"},
+                )
+        assert resp.status_code == 403
+        assert "GITHUB_WEBHOOK_SECRET" in resp.json()["detail"]
+
     def test_pr_opened(self, client):
         tc, mock = client
         body = json.dumps(
@@ -148,6 +165,25 @@ class TestGenericEndpoint:
             headers={"X-Authorization": "Bearer wrong"},
         )
         assert resp.status_code == 403
+
+    def test_generic_secret_not_configured(self, monkeypatch):
+        monkeypatch.setenv("PACHCA_ACCESS_TOKEN", "test-token")
+        monkeypatch.setenv("PACHCA_CHAT_ID", "12345")
+        monkeypatch.setenv("GITHUB_WEBHOOK_SECRET", "gh-secret")
+        monkeypatch.delenv("GENERIC_WEBHOOK_SECRET", raising=False)
+        app = create_app()
+        mock_pachca = MagicMock()
+        with patch("pachca_bot.app.PachcaClient", return_value=mock_pachca):
+            with TestClient(app) as tc:
+                resp = tc.post(
+                    "/webhooks/generic",
+                    content=json.dumps(
+                        {"event_type": "alert", "source": "x", "title": "y"}
+                    ).encode(),
+                    headers={"X-Authorization": "Bearer any-token"},
+                )
+        assert resp.status_code == 403
+        assert "GENERIC_WEBHOOK_SECRET" in resp.json()["detail"]
 
     def test_deploy_with_id(self, client):
         tc, mock = client

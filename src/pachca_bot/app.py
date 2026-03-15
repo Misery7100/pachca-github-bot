@@ -77,16 +77,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         x_github_event: str = Header(""),
     ) -> WebhookResponse:
         settings = get_settings()
-        body = await request.body()
-
-        if settings.github_webhook_secret:
-            valid = verify_github_signature(
-                x_hub_signature_256,
-                body,
-                settings.github_webhook_secret,
+        if not settings.github_webhook_secret:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "GitHub webhook secret not configured. "
+                    "Set GITHUB_WEBHOOK_SECRET to enable this endpoint."
+                ),
             )
-            if not valid:
-                raise HTTPException(status_code=403, detail="Invalid signature")
+        body = await request.body()
+        valid = verify_github_signature(
+            x_hub_signature_256,
+            body,
+            settings.github_webhook_secret,
+        )
+        if not valid:
+            raise HTTPException(status_code=403, detail="Invalid signature")
 
         payload = GitHubWebhookPayload.model_validate_json(body)
         result = handle_github_event(
@@ -139,13 +145,19 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         x_authorization: str = Header(""),
     ) -> WebhookResponse:
         settings = get_settings()
-
-        if settings.generic_webhook_secret:
-            if not verify_bearer_token(
-                x_authorization,
-                settings.generic_webhook_secret,
-            ):
-                raise HTTPException(status_code=403, detail="Unauthorized")
+        if not settings.generic_webhook_secret:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Generic webhook secret not configured. "
+                    "Set GENERIC_WEBHOOK_SECRET to enable this endpoint."
+                ),
+            )
+        if not verify_bearer_token(
+            x_authorization,
+            settings.generic_webhook_secret,
+        ):
+            raise HTTPException(status_code=403, detail="Unauthorized")
 
         body = await request.body()
         payload = GenericWebhookPayload.model_validate_json(body)

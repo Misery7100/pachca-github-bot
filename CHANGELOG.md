@@ -34,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Configuration** — Replaced single `PACHCA_CHAT_ID` + `BOT_DISPLAY_AVATAR_URL` with namespaced settings to support future integrations and separate chat routing
+- **Security** — `GITHUB_WEBHOOK_SECRET` and `GENERIC_WEBHOOK_SECRET` are now required; endpoints return 403 with a descriptive message when the corresponding secret is not configured
 
 ## [0.1.1] - 2026-03-15
 
