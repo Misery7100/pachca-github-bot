@@ -245,7 +245,7 @@ Pre-built composite actions in `actions/` for easy integration in any workflow.
 ### Alert Action
 
 ```yaml
-- uses: Misery7100/pachca-github-bot/actions/generic-alert@main
+- uses: misery7100/pachca-bot/actions/generic-alert@main
   with:
     host: ${{ secrets.PACHCA_BOT_HOST }}
     secret: ${{ secrets.PACHCA_WEBHOOK_SECRET }}
@@ -261,7 +261,7 @@ Pre-built composite actions in `actions/` for easy integration in any workflow.
 
 ```yaml
 # At the start of deploy
-- uses: Misery7100/pachca-github-bot/actions/generic-deployment@main
+- uses: misery7100/pachca-bot/actions/generic-deployment@main
   with:
     host: ${{ secrets.PACHCA_BOT_HOST }}
     secret: ${{ secrets.PACHCA_WEBHOOK_SECRET }}
@@ -274,7 +274,7 @@ Pre-built composite actions in `actions/` for easy integration in any workflow.
     changelog: '["Added feature X", "Fixed bug Y"]'
 
 # After deploy completes
-- uses: Misery7100/pachca-github-bot/actions/generic-deployment@main
+- uses: misery7100/pachca-bot/actions/generic-deployment@main
   if: success()
   with:
     host: ${{ secrets.PACHCA_BOT_HOST }}
