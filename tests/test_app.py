@@ -133,7 +133,7 @@ class TestGenericEndpoint:
             "/webhooks/generic",
             content=body,
             headers={
-                "Authorization": "Bearer gen-secret",
+                "X-Authorization": "Bearer gen-secret",
                 "Content-Type": "application/json",
             },
         )
@@ -146,7 +146,7 @@ class TestGenericEndpoint:
         resp = tc.post(
             "/webhooks/generic",
             content=body,
-            headers={"Authorization": "Bearer wrong"},
+            headers={"X-Authorization": "Bearer wrong"},
         )
         assert resp.status_code == 403
 
@@ -167,7 +167,7 @@ class TestGenericEndpoint:
             "/webhooks/generic",
             content=body,
             headers={
-                "Authorization": "Bearer gen-secret",
+                "X-Authorization": "Bearer gen-secret",
                 "Content-Type": "application/json",
             },
         )
