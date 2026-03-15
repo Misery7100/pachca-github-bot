@@ -32,6 +32,7 @@ class GenericWebhookPayload(BaseModel):
     status: str = ""
     actor: str = ""
     changelog: list[str] = Field(default_factory=list)
+    deploy_id: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -64,6 +65,11 @@ class _GitHubWorkflowRun(BaseModel, extra="allow"):
     conclusion: str | None = None
     html_url: str = ""
     actor: _GitHubUser = Field(default_factory=_GitHubUser)
+    pull_requests: list[_GitHubWorkflowPR] = Field(default_factory=list)
+
+
+class _GitHubWorkflowPR(BaseModel, extra="allow"):
+    number: int = 0
 
 
 class _GitHubCheckSuite(BaseModel, extra="allow"):
@@ -124,8 +130,9 @@ class _GitHubCheckSuitePR(BaseModel, extra="allow"):
     number: int = 0
 
 
-# Resolve forward reference
+# Resolve forward references
 _GitHubCheckSuiteTop.model_rebuild()
+_GitHubWorkflowRun.model_rebuild()
 
 
 class _GitHubDeployment(BaseModel, extra="allow"):

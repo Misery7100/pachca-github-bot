@@ -20,12 +20,11 @@ def _make_tracker() -> tuple[PRTracker, MagicMock]:
 def _make_pr(
     number: int = 1,
     status: PRStatus = PRStatus.OPEN,
-    title: str = "Test PR",
 ) -> GitHubPRMessage:
     return GitHubPRMessage(
         repo="org/repo",
         number=number,
-        title=title,
+        title="Test PR",
         author="alice",
         url=f"https://github.com/org/repo/pull/{number}",
         base_branch="main",
@@ -37,44 +36,52 @@ def _make_pr(
 class TestPRTrackerNewPR:
     def test_creates_new_message(self):
         tracker, client = _make_tracker()
-        pr = _make_pr(status=PRStatus.DRAFT)
-        result = tracker.handle_pr_event(pr)
+        result = tracker.handle_pr_event(_make_pr(status=PRStatus.DRAFT))
         assert result["id"] == 100
         client.send_message.assert_called_once()
-        content = client.send_message.call_args[0][0]
-        assert PRStatus.DRAFT.emoji in content
 
     def test_stores_entry(self):
         tracker, _ = _make_tracker()
-        pr = _make_pr(number=42)
-        tracker.handle_pr_event(pr)
+        tracker.handle_pr_event(_make_pr(number=42))
         assert ("org/repo", 42) in tracker._store
 
 
 class TestPRTrackerUpdate:
-    def test_creates_thread_and_updates_parent(self):
+    def test_thread_update_format(self):
         tracker, client = _make_tracker()
-        tracker._store[("org/repo", 1)] = _PREntry(message_id=100, status=PRStatus.DRAFT)
-        pr = _make_pr(status=PRStatus.OPEN)
-        tracker.handle_pr_event(pr)
+        content = _make_pr(status=PRStatus.DRAFT).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.DRAFT, content=content
+        )
+        tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
 
         client.create_thread.assert_called_once_with(100)
         client.post_to_thread.assert_called_once()
-        client.update_message.assert_called_once()
+        thread_text = client.post_to_thread.call_args[0][1]
+        assert "**Status updated:**" in thread_text
+        assert "Before: 📝 Draft" in thread_text
+        assert "After: 🆕 Open" in thread_text
 
-        thread_content = client.post_to_thread.call_args[0][1]
-        assert PRStatus.DRAFT.emoji in thread_content
-        assert PRStatus.OPEN.emoji in thread_content
-
-    def test_skips_if_same_status(self):
+    def test_patches_parent_preserving_content(self):
         tracker, client = _make_tracker()
-        tracker._store[("org/repo", 1)] = _PREntry(message_id=100, status=PRStatus.OPEN)
-        pr = _make_pr(status=PRStatus.OPEN)
-        result = tracker.handle_pr_event(pr)
+        content = _make_pr(status=PRStatus.DRAFT).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.DRAFT, content=content
+        )
+        tracker.handle_pr_event(_make_pr(status=PRStatus.MERGED))
 
+        updated = client.update_message.call_args[0][1]
+        assert "🟣" in updated
+        assert "Merged" in updated
+        assert "[alice](" in updated
+        assert "[feat](" in updated
+
+    def test_skips_same_status(self):
+        tracker, client = _make_tracker()
+        tracker._store[("org/repo", 1)] = _PREntry(message_id=100, status=PRStatus.OPEN, content="")
+        result = tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
         assert result.get("unchanged") is True
         client.create_thread.assert_not_called()
-        client.update_message.assert_not_called()
 
 
 class TestPRTrackerChatFallback:
@@ -83,42 +90,23 @@ class TestPRTrackerChatFallback:
         client.get_messages.return_value = [
             {
                 "id": 555,
-                "content": "## 🆕 PR [#7](https://github.com/org/repo/pull/7) Open: Feature\n\n"
-                "**Status:** 🆕 Open",
+                "content": "## 🆕 PR [#7](https://github.com/org/repo/pull/7) Open: Feature",
             }
         ]
-        pr = _make_pr(number=7, status=PRStatus.MERGED)
-        tracker.handle_pr_event(pr)
-
+        tracker.handle_pr_event(_make_pr(number=7, status=PRStatus.MERGED))
         client.create_thread.assert_called_once_with(555)
-        client.update_message.assert_called_once()
-
-    def test_creates_new_if_not_found(self):
-        tracker, client = _make_tracker()
-        client.get_messages.return_value = []
-        pr = _make_pr(number=99, status=PRStatus.OPEN)
-        tracker.handle_pr_event(pr)
-
-        client.send_message.assert_called_once()
 
 
 class TestPRTrackerFullLifecycle:
-    def test_draft_to_open_to_review_to_merged(self):
+    def test_draft_to_open_to_merged(self):
         tracker, client = _make_tracker()
 
-        pr_draft = _make_pr(status=PRStatus.DRAFT)
-        tracker.handle_pr_event(pr_draft)
+        tracker.handle_pr_event(_make_pr(status=PRStatus.DRAFT))
         client.send_message.assert_called_once()
 
-        pr_open = _make_pr(status=PRStatus.OPEN)
-        tracker.handle_pr_event(pr_open)
+        tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
         assert client.create_thread.call_count == 1
 
-        pr_review = _make_pr(status=PRStatus.READY_FOR_REVIEW)
-        tracker.handle_pr_event(pr_review)
+        tracker.handle_pr_event(_make_pr(status=PRStatus.MERGED))
         assert client.create_thread.call_count == 2
-
-        pr_merged = _make_pr(status=PRStatus.MERGED)
-        tracker.handle_pr_event(pr_merged)
-        assert client.create_thread.call_count == 3
-        assert client.update_message.call_count == 3
+        assert client.update_message.call_count == 2

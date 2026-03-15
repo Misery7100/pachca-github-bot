@@ -15,6 +15,7 @@ from pachca_bot.config import (
     Settings,
     get_settings,
 )
+from pachca_bot.deploy_tracker import DeployTracker
 from pachca_bot.handlers.generic import handle_generic_event
 from pachca_bot.handlers.github import handle_github_event
 from pachca_bot.models.messages import StructuredMessage
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 _pachca_client: PachcaClient | None = None
 _pr_tracker: PRTracker | None = None
+_deploy_tracker: DeployTracker | None = None
 
 
 def _get_client() -> PachcaClient:
@@ -42,17 +44,24 @@ def _get_pr_tracker() -> PRTracker:
     return _pr_tracker
 
 
+def _get_deploy_tracker() -> DeployTracker:
+    assert _deploy_tracker is not None, "DeployTracker not initialised"
+    return _deploy_tracker
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    global _pachca_client, _pr_tracker
+    global _pachca_client, _pr_tracker, _deploy_tracker
     settings = get_settings()
     _pachca_client = PachcaClient(settings)
     _pr_tracker = PRTracker(_pachca_client)
+    _deploy_tracker = DeployTracker(_pachca_client)
     logger.info("Pachca bot started — chat_id=%s", settings.pachca_chat_id)
     yield
     _pachca_client.close()
     _pachca_client = None
     _pr_tracker = None
+    _deploy_tracker = None
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -62,17 +71,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
-    # ------------------------------------------------------------------
-    # Health
-    # ------------------------------------------------------------------
-
     @app.get("/health")
     async def health() -> dict:
         return {"status": "ok"}
-
-    # ------------------------------------------------------------------
-    # GitHub webhook
-    # ------------------------------------------------------------------
 
     @app.post("/webhooks/github", response_model=WebhookResponse)
     async def github_webhook(
@@ -100,7 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return WebhookResponse(
                 ok=True,
                 message_id=result.get("id"),
-                detail="PR updated" if result.get("id") else "PR handled",
+                detail="Tracked event handled",
             )
 
         if isinstance(result, StructuredMessage):
@@ -110,10 +111,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return WebhookResponse(ok=True, message_id=api_result.get("id"), detail="Message sent")
 
         return WebhookResponse(ok=True, detail="Event handled")
-
-    # ------------------------------------------------------------------
-    # Generic webhook
-    # ------------------------------------------------------------------
 
     @app.post("/webhooks/generic", response_model=WebhookResponse)
     async def generic_webhook(
@@ -128,11 +125,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         body = await request.body()
         payload = GenericWebhookPayload.model_validate_json(body)
-        structured = handle_generic_event(payload)
+        result = handle_generic_event(payload, deploy_tracker=_get_deploy_tracker())
+
+        if isinstance(result, dict):
+            return WebhookResponse(
+                ok=True,
+                message_id=result.get("id"),
+                detail="Deploy tracked",
+            )
 
         client = _get_client()
-        content = structured.render()
-        result = client.send_message(content, display_name=DISPLAY_NAME_GENERIC)
-        return WebhookResponse(ok=True, message_id=result.get("id"), detail="Message sent")
+        content = result.render()
+        api_result = client.send_message(content, display_name=DISPLAY_NAME_GENERIC)
+        return WebhookResponse(ok=True, message_id=api_result.get("id"), detail="Message sent")
 
     return app
