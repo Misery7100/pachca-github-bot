@@ -71,6 +71,9 @@ jobs:
     needs: build-and-push
     name: Create GitHub Release
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
