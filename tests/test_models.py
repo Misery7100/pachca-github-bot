@@ -122,7 +122,25 @@ class TestPRMessage:
         assert "🆕" not in patched
         assert "**Status:** Merged" in patched
         assert "[alice](" in patched
+
+    def test_patch_strips_body_when_merged(self):
+        original = self._make_pr(PRStatus.OPEN).to_parent()
+        patched = GitHubPRMessage.patch_parent_status(original, PRStatus.MERGED)
+        assert "Description" not in patched
         assert "Fix bug" in patched
+        assert "[View pull request]" in patched
+
+    def test_to_parent_no_body_when_closed(self):
+        pr = self._make_pr(PRStatus.CLOSED)
+        rendered = pr.to_parent()
+        assert "Description" not in rendered
+        assert "Fix bug" in rendered
+        assert "**Status:** Closed" in rendered
+
+    def test_to_parent_has_body_when_open(self):
+        pr = self._make_pr(PRStatus.OPEN)
+        rendered = pr.to_parent()
+        assert "Description" in rendered
 
 
 class TestGHDeployMessage:

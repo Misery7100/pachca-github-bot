@@ -23,6 +23,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ...
 
+## [0.1.5] - 2026-03-16
+
+### Fixed
+
+- **PR status vs CI failures** — When a CI failure (workflow_run or check_run) is posted to a PR thread, status is downgraded from "Ready to merge" to "Ready for review" so the parent message no longer contradicts thread content
+- **check_run CI failures** — Now posted to PR thread when `check_suite.pull_requests` is available (same as workflow_run), instead of always posting to channel
+- **PR thread lookup** — `get_thread_id_for_pr` now falls back to chat search when the in-memory store is empty (e.g. after serverless restart)
+- **synchronize events** — New commits pushed to a PR now reset status to "Ready for review" (checks need to re-run), preventing stale "Ready to merge" when the head has changed
+- **Message corruption (blank Author/Branch)** — When `check_suite` fired but the PR message was not found, the code could create a new message with minimal data. Now `check_suite` only updates existing messages. When stored content is empty and `pr_msg` is minimal: try `get_message(id)` to fetch content, then retry chat scan; only skip update if both fail
+- **Content recovery** — Added `get_message(message_id)` to fetch a single message by ID. When entry content is empty, trackers now try direct fetch before giving up. Deploy trackers also fetch content when empty before patching
+- **API retry with backoff** — All Pachca API calls (get_message, get_messages, send_message, update_message, create_thread, post_to_thread) retry up to 2 times on failure with exponential backoff (1s, 2s) to handle rate limits and transient errors
+- **Scan depth** — Default increased from 300 to 500 messages; configurable via `MESSAGES_MAX_SCAN` env var
+- **PR body stripped when closed/merged** — When a PR is closed or merged, the body is removed from the message (new or updated) to reduce visual noise; only title, fields, and link are kept
+
 ## [0.1.4] - 2026-03-16
 
 ### Added
@@ -30,7 +44,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Generic webhook display override** — `display_name` and `display_avatar_url` in payload to override bot identity per request (useful when source integration is unsupported)
 - **Project restructuring** — `core/` (models, client, config, security), `api/` (FastAPI routes), `integrations/github/` (PR tracker, deploy tracker, handler), `integrations/generic/` (deploy tracker, handler); handlers as dataclass-based classes
 - **Cursor-based message pagination** — `get_messages` uses limit=50 and cursor to scan up to 300 messages for serverless deployments
-- **CI lint step** — ruff check in GitHub Actions
 
 ### Changed
 
@@ -105,7 +118,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test suite** — pytest tests for app, handlers, models, security, PR tracker, deploy trackers
 - **Project scaffolding** — pyproject.toml (uv, FastAPI, pydantic, pachca), .gitignore, LICENSE (MIT), README with setup and usage docs
 
-[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.4...HEAD
+[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/Misery7100/pachca-bot/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Misery7100/pachca-bot/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/Misery7100/pachca-bot/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/Misery7100/pachca-bot/compare/v0.1.1...v0.1.2

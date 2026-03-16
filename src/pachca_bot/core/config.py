@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     log_level: str = "info"
+    messages_max_scan: int = Field(
+        default=500,
+        description="Max messages to scan when searching chat (env: MESSAGES_MAX_SCAN)",
+    )
 
     github: GitHubIntegrationSettings = Field(default_factory=GitHubIntegrationSettings)
     generic: GenericIntegrationSettings = Field(default_factory=GenericIntegrationSettings)

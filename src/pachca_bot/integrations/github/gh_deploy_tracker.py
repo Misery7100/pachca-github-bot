@@ -114,6 +114,12 @@ class GHDeployTracker:
             logger.warning("Failed to post GH deploy thread update", exc_info=True)
 
         try:
+            if not entry.content:
+                msg = self._client.get_message(entry.message_id)
+                if msg:
+                    content = msg.get("content", "")
+                    if content:
+                        entry.content = content
             if entry.content:
                 new_content = GitHubDeploymentMessage.patch_parent_status(entry.content, new_state)
             else:

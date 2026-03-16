@@ -122,6 +122,12 @@ class DeployTracker:
             logger.warning("Failed to post deploy thread update", exc_info=True)
 
         try:
+            if not entry.content:
+                msg = self._client.get_message(entry.message_id)
+                if msg:
+                    content = msg.get("content", "")
+                    if content:
+                        entry.content = content
             if entry.content:
                 new_content = GenericDeployMessage.patch_parent_status(
                     entry.content, deploy_msg.status

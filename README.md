@@ -35,6 +35,7 @@ All settings are read from environment variables:
 | `GENERIC__BOT_DISPLAY_AVATAR_URL` | no | [default](https://raw.githubusercontent.com/Misery7100/pachca-bot/main/images/events-bot.png) | Avatar URL for generic messages |
 | `HOST` | no | `0.0.0.0` | Server bind address |
 | `PORT` | no | `8000` | Server bind port |
+| `MESSAGES_MAX_SCAN` | no | `500` | Max messages to scan when searching chat for PR/deploy threads |
 
 \* At least one of `PACHCA_CHAT_ID`, `GITHUB__PACHCA_CHAT_ID`, or `GENERIC__PACHCA_CHAT_ID` must be set. Use `PACHCA_CHAT_ID` alone for both integrations, or set integration-specific IDs to route GitHub and generic events to different chats. `GITHUB__WEBHOOK_SECRET` and `GENERIC__WEBHOOK_SECRET` are required for their respective endpoints — requests are rejected with 403 if the secret is not configured.
 

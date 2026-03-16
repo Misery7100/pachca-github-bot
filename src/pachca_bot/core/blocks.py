@@ -117,3 +117,14 @@ def patch_status_in_content(content: str, new_emoji: str, new_label: str) -> str
     result = HEADER_EMOJI_RE.sub(rf"\g<1>{new_emoji}\2", content, count=1)
     result = STATUS_FIELD_RE.sub(f"**Status:** {new_label}", result)
     return result
+
+
+PR_BODY_BETWEEN_STATUS_AND_LINK_RE = re.compile(
+    r"(\*\*Status:\*\* [^\n]+)(\n\n)([\s\S]*?)(\n\n\[View pull request\]\([^)]+\))",
+    re.MULTILINE,
+)
+
+
+def strip_pr_body(content: str) -> str:
+    """Remove PR body (text between Status field and link). Reduces noise when closed/merged."""
+    return PR_BODY_BETWEEN_STATUS_AND_LINK_RE.sub(r"\1\4", content)

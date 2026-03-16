@@ -16,6 +16,7 @@ from pachca_bot.core.blocks import (
     TextBlock,
     patch_status_in_content,
     render_status_update,
+    strip_pr_body,
 )
 
 GITHUB_BASE = "https://github.com"
@@ -343,7 +344,7 @@ class GitHubPRMessage(BaseModel):
             "Status": self.status.label,
         }
         msg.add(FieldsBlock(fields=fields))
-        if self.body:
+        if self.body and self.status not in (PRStatus.CLOSED, PRStatus.MERGED):
             msg.add(TextBlock(text=self.body))
         msg.add(LinkBlock(text="View pull request", url=self.url))
         return msg.render()
@@ -360,7 +361,10 @@ class GitHubPRMessage(BaseModel):
 
     @staticmethod
     def patch_parent_status(content: str, new_status: PRStatus) -> str:
-        return patch_status_in_content(content, new_status.emoji, new_status.label)
+        result = patch_status_in_content(content, new_status.emoji, new_status.label)
+        if new_status in (PRStatus.CLOSED, PRStatus.MERGED):
+            result = strip_pr_body(result)
+        return result
 
 
 class GitHubDeploymentMessage(BaseModel):

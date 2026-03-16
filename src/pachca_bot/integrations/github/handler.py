@@ -39,6 +39,7 @@ PR_ACTIONS_TO_STATUS: dict[str, PRStatus | None] = {
     "closed": None,
     "ready_for_review": PRStatus.READY_FOR_REVIEW,
     "converted_to_draft": PRStatus.DRAFT,
+    "synchronize": PRStatus.READY_FOR_REVIEW,
 }
 
 
@@ -56,8 +57,10 @@ def _try_post_ci_to_pr_thread(
     pr_numbers: list[int],
     ci_msg: GitHubCIMessage,
 ) -> bool:
+    """Post CI failure to PR thread(s). Downgrades status from Ready to merge if posted."""
     if not pr_tracker or not pr_numbers:
         return False
+    posted = False
     for pr_num in pr_numbers:
         thread_id = pr_tracker.get_thread_id_for_pr(repo, pr_num)
         if thread_id is not None:
@@ -68,8 +71,9 @@ def _try_post_ci_to_pr_thread(
                 display_name=pr_tracker._integration.display_name,
                 display_avatar_url=pr_tracker._integration.display_avatar_url,
             )
-            return True
-    return False
+            pr_tracker.downgrade_status_on_ci_failure(repo, pr_num)
+            posted = True
+    return posted
 
 
 @dataclass
@@ -177,6 +181,11 @@ class GitHubHandler:
                 conclusion=cr.conclusion or "unknown",
                 url=cr.html_url,
             )
+            pr_nums = []
+            if payload.check_suite is not None:
+                pr_nums = [pr.number for pr in payload.check_suite.pull_requests if pr.number]
+            if _try_post_ci_to_pr_thread(self.pr_tracker, repo, pr_nums, ci_msg):
+                return {"id": None, "posted_to_pr_thread": True}
             return ci_msg.to_structured()
 
         if event_type == "pull_request" and payload.pull_request is not None:
@@ -217,7 +226,9 @@ class GitHubHandler:
                     head_branch="",
                     status=PRStatus.CHECKS_PASSED,
                 )
-                result = self.pr_tracker.handle_pr_event(pr_msg)
+                result = self.pr_tracker.handle_pr_event(
+                    pr_msg, create_if_missing=False
+                )
             return result
 
         if event_type in ("deployment", "deployment_status") and payload.deployment is not None:

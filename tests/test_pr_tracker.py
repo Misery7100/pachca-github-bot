@@ -95,3 +95,100 @@ class TestPRTrackerLifecycle:
         assert client.send_message.call_count == 1
         assert client.create_thread.call_count == 2
         assert client.update_message.call_count == 2
+
+
+class TestPRTrackerCIFailure:
+    def test_downgrade_ready_to_merge_on_ci_failure(self):
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.CHECKS_PASSED).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.CHECKS_PASSED, content=content
+        )
+        result = tracker.downgrade_status_on_ci_failure("org/repo", 1)
+        assert result is True
+        client.update_message.assert_called_once()
+        updated = client.update_message.call_args[0][1]
+        assert "**Status:** Ready for review" in updated
+        assert "Ready to merge" not in updated
+
+    def test_downgrade_noop_when_not_ready_to_merge(self):
+        tracker, client = _make_tracker()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.OPEN, content=""
+        )
+        result = tracker.downgrade_status_on_ci_failure("org/repo", 1)
+        assert result is False
+        client.update_message.assert_not_called()
+
+    def test_get_thread_id_searches_when_not_in_store(self):
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.OPEN).to_parent()
+        client.get_messages.return_value = [{"id": 99, "content": content}]
+        thread_id = tracker.get_thread_id_for_pr("org/repo", 1)
+        assert thread_id == 200
+        client.create_thread.assert_called_once_with(99)
+
+    def test_check_suite_does_not_create_corrupted_message_when_pr_not_found(self):
+        """When check_suite fires but PR message is outside scan window, do not create one with blank Author/Branch."""
+        tracker, client = _make_tracker()
+        client.get_messages.return_value = []
+        minimal_pr = GitHubPRMessage(
+            repo="org/repo",
+            number=1,
+            title="",
+            author="",
+            url="https://github.com/org/repo/pull/1",
+            base_branch="",
+            head_branch="",
+            status=PRStatus.CHECKS_PASSED,
+        )
+        result = tracker.handle_pr_event(minimal_pr, create_if_missing=False)
+        assert result is None
+        client.send_message.assert_not_called()
+
+    def test_does_not_overwrite_with_minimal_when_content_empty(self):
+        """When entry has no stored content and pr_msg is minimal, skip parent update to avoid corruption."""
+        tracker, client = _make_tracker()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.OPEN, content=""
+        )
+        client.get_message.return_value = None
+        client.get_messages.return_value = []
+        minimal_pr = GitHubPRMessage(
+            repo="org/repo",
+            number=1,
+            title="",
+            author="",
+            url="https://github.com/org/repo/pull/1",
+            base_branch="",
+            head_branch="",
+            status=PRStatus.CHECKS_PASSED,
+        )
+        result = tracker.handle_pr_event(minimal_pr, create_if_missing=False)
+        assert result == {"id": 100}
+        client.update_message.assert_not_called()
+
+    def test_fetches_content_via_get_message_when_empty(self):
+        """When entry content is empty, try get_message before giving up."""
+        tracker, client = _make_tracker()
+        full_content = _make_pr(status=PRStatus.OPEN).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.OPEN, content=""
+        )
+        client.get_message.return_value = {"id": 100, "content": full_content}
+        minimal_pr = GitHubPRMessage(
+            repo="org/repo",
+            number=1,
+            title="",
+            author="",
+            url="https://github.com/org/repo/pull/1",
+            base_branch="",
+            head_branch="",
+            status=PRStatus.CHECKS_PASSED,
+        )
+        result = tracker.handle_pr_event(minimal_pr, create_if_missing=False)
+        assert result["id"] == 100
+        client.get_message.assert_called_once_with(100)
+        client.update_message.assert_called_once()
+        updated = client.update_message.call_args[0][1]
+        assert "**Status:** Ready to merge" in updated

@@ -4,9 +4,9 @@ Maintains an in-memory mapping of (repo, pr_number) → pachca_message_id.
 On each PR status change the tracker:
   1. Finds the existing parent message (in-memory or by scanning chat)
   2. Creates/gets the thread and posts a status-change reply
-  3. Patches the parent message header/status (preserving body)
+  3. Patches the parent message header/status (preserving body when open)
   4. If no parent message exists, creates a new one
-  5. REOPENED always creates a new parent message
+  5. REOPENED always creates a new parent message; further updates go to that message
 """
 
 from __future__ import annotations
@@ -39,9 +39,14 @@ class PRTracker:
     def _make_key(self, repo: str, number: int) -> tuple[str, int]:
         return (repo, number)
 
-    def _search_chat_for_pr(self, repo: str, number: int) -> _PREntry | None:
+    def _search_chat_for_pr(
+        self, repo: str, number: int, max_messages: int | None = None
+    ) -> _PREntry | None:
         try:
-            messages = self._client.get_messages(self._integration.chat_id)
+            messages = self._client.get_messages(
+                self._integration.chat_id,
+                max_messages=max_messages,
+            )
         except Exception:
             logger.warning("Failed to fetch chat messages for PR lookup", exc_info=True)
             return None
@@ -58,6 +63,18 @@ class PRTracker:
                 )
         return None
 
+    def _ensure_entry_content(self, entry: _PREntry) -> bool:
+        """Fetch message content when empty. Returns True if content is now available."""
+        if entry.content:
+            return True
+        msg = self._client.get_message(entry.message_id)
+        if msg:
+            content = msg.get("content", "")
+            if content:
+                entry.content = content
+                return True
+        return False
+
     @staticmethod
     def _infer_status_from_content(content: str) -> PRStatus | None:
         for status in PRStatus:
@@ -69,12 +86,51 @@ class PRTracker:
         key = self._make_key(repo, number)
         entry = self._store.get(key)
         if entry is None:
+            found = self._search_chat_for_pr(repo, number)
+            if found is not None:
+                entry = found
+                self._store[key] = entry
+        if entry is None:
             return None
         try:
             thread = self._client.create_thread(entry.message_id)
             return thread.get("id")
         except Exception:
             return None
+
+    def downgrade_status_on_ci_failure(self, repo: str, number: int) -> bool:
+        """If PR is marked Ready to merge, downgrade to Ready for review when CI fails."""
+        key = self._make_key(repo, number)
+        entry = self._store.get(key)
+        if entry is None:
+            found = self._search_chat_for_pr(repo, number)
+            if found is not None:
+                entry = found
+                self._store[key] = entry
+        if entry is None or entry.status != PRStatus.CHECKS_PASSED:
+            return False
+        if not entry.content and not self._ensure_entry_content(entry):
+            refound = self._search_chat_for_pr(repo, number)
+            if refound and refound.content:
+                entry.content = refound.content
+            else:
+                logger.warning("Skipping CI failure downgrade for PR #%s: no content", number)
+                return False
+        try:
+            new_content = GitHubPRMessage.patch_parent_status(
+                entry.content, PRStatus.READY_FOR_REVIEW
+            )
+            self._client.update_message(entry.message_id, new_content)
+            entry.status = PRStatus.READY_FOR_REVIEW
+            entry.content = new_content
+            return True
+        except Exception:
+            logger.warning(
+                "Failed to downgrade PR #%s status on CI failure",
+                number,
+                exc_info=True,
+            )
+            return False
 
     def _create_new(self, key: tuple[str, int], pr_msg: GitHubPRMessage) -> dict:
         content = pr_msg.to_parent()
@@ -89,7 +145,9 @@ class PRTracker:
             self._store[key] = _PREntry(message_id=msg_id, status=pr_msg.status, content=content)
         return result
 
-    def handle_pr_event(self, pr_msg: GitHubPRMessage) -> dict:
+    def handle_pr_event(
+        self, pr_msg: GitHubPRMessage, *, create_if_missing: bool = True
+    ) -> dict | None:
         key = self._make_key(pr_msg.repo, pr_msg.number)
 
         if pr_msg.status == PRStatus.REOPENED:
@@ -104,6 +162,8 @@ class PRTracker:
                 self._store[key] = entry
 
         if entry is None:
+            if not create_if_missing:
+                return None
             return self._create_new(key, pr_msg)
 
         old_status = entry.status
@@ -125,6 +185,21 @@ class PRTracker:
             logger.warning("Failed to post thread update for PR #%s", pr_msg.number, exc_info=True)
 
         try:
+            if not entry.content and not (pr_msg.author or pr_msg.title):
+                # Minimal pr_msg: try to fetch content before giving up
+                if self._ensure_entry_content(entry):
+                    pass  # content now available, fall through to patch
+                else:
+                    # Retry scan in case list API had transient empty content
+                    refound = self._search_chat_for_pr(pr_msg.repo, pr_msg.number)
+                    if refound and refound.content:
+                        entry.content = refound.content
+                    else:
+                        logger.warning(
+                            "Skipping parent update for PR #%s: could not fetch content",
+                            pr_msg.number,
+                        )
+                        return {"id": entry.message_id}
             if entry.content:
                 new_content = GitHubPRMessage.patch_parent_status(entry.content, pr_msg.status)
             else:
