@@ -248,12 +248,16 @@ class GitHubHandler:
                 return None
             if not cs.pull_requests or self.pr_tracker is None:
                 return None
+            check_name = "Checks"
+            if cs.check_runs:
+                check_name = cs.check_runs[0].name or check_name
             result = None
             for pr_ref in cs.pull_requests:
                 result = self.pr_tracker.handle_check_suite_pass(
                     repo=repo,
                     number=pr_ref.number,
                     commit_sha=cs.head_sha,
+                    check_name=check_name,
                     checks_url=cs.html_url or "",
                 )
             return result

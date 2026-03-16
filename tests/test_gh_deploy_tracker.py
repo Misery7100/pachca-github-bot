@@ -52,8 +52,7 @@ class TestGHDeployTrackerUpdate:
         )
         tracker.handle_deploy_event(_make_deploy("success"))
         thread_text = client.post_to_thread.call_args[0][1]
-        assert "**Before:** ⏳ Pending" in thread_text
-        assert "**After:** ✅ Success" in thread_text
+        assert "**Status updated:** ✅ Success" in thread_text
 
     def test_patches_parent(self):
         tracker, client = _make_tracker()

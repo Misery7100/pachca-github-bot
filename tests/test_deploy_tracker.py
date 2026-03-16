@@ -44,8 +44,7 @@ class TestDeployTrackerUpdate:
         )
         tracker.handle_deploy_event(_make_deploy(status=DeployStatus.SUCCEEDED))
         thread_text = client.post_to_thread.call_args[0][1]
-        assert "**Before:** 🚀 Started" in thread_text
-        assert "**After:** ✅ Succeeded" in thread_text
+        assert "**Status updated:** ✅ Succeeded" in thread_text
 
     def test_patches_parent(self):
         tracker, client = _make_tracker()

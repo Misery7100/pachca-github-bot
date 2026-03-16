@@ -105,11 +105,7 @@ def render_status_update(
     after_emoji: str,
     after_label: str,
 ) -> str:
-    return (
-        f"Status updated:\n\n"
-        f"**Before:** {before_emoji} {before_label}\n"
-        f"**After:** {after_emoji} {after_label}"
-    )
+    return f"**Status updated:** {after_emoji} {after_label}"
 
 
 def patch_status_in_content(content: str, new_emoji: str, new_label: str) -> str:

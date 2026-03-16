@@ -220,6 +220,10 @@ class GitHubCheckSuitePR(BaseModel, extra="allow"):
     number: int = 0
 
 
+class GitHubCheckRunBasic(BaseModel, extra="allow"):
+    name: str = ""
+
+
 class GitHubCheckSuiteTop(BaseModel, extra="allow"):
     id: int = 0
     head_branch: str = ""
@@ -228,6 +232,7 @@ class GitHubCheckSuiteTop(BaseModel, extra="allow"):
     conclusion: str | None = None
     html_url: str = ""
     pull_requests: list[GitHubCheckSuitePR] = Field(default_factory=list)
+    check_runs: list[GitHubCheckRunBasic] = Field(default_factory=list)
 
 
 class GitHubDeployment(BaseModel, extra="allow"):
@@ -329,11 +334,12 @@ class GitHubCheckSuitePassedMessage(BaseModel):
 
     repo: str
     commit_sha: str
+    check_name: str = "Checks"
     url: str = ""
 
     def to_thread_content(self) -> str:
         commit_link = gh_commit_link(self.repo, self.commit_sha)
-        lines = [f"✅ **All checks passed** — {commit_link}"]
+        lines = [f"**Status updated:** ✅ {self.check_name} passed — {commit_link}"]
         if self.url:
             lines.append("")
             lines.append(f"[View checks]({self.url})")
@@ -363,13 +369,17 @@ class GitHubPRReviewMessage(BaseModel):
     def to_thread_content(self) -> str:
         emoji = REVIEW_STATE_EMOJI.get(self.state, "💬")
         if self.action == "dismissed":
-            return f"❌ **Review dismissed** — {gh_user_link(self.reviewer)}'s review was dismissed"
+            reviewer = gh_user_link(self.reviewer)
+            return f"**Review dismissed:** ❌ — {reviewer}'s review was dismissed"
         state_label = {
             "approved": "Approved",
             "changes_requested": "Requested changes",
             "commented": "Commented",
         }.get(self.state, self.state or "Review")
-        lines = [f"{emoji} **Review {self.action}** — {gh_user_link(self.reviewer)}: {state_label}"]
+        action_label = "submitted" if self.action == "submitted" else self.action
+        lines = [
+            f"**Review {action_label}:** {emoji} {state_label} — {gh_user_link(self.reviewer)}"
+        ]
         if self.body:
             # Truncate long bodies, strip markdown headings
             body = strip_md_headings(self.body.strip())

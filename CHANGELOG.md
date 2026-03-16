@@ -23,6 +23,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - ...
 
+## [0.1.7] - 2026-03-16
+
+### Changed
+
+- **Status update format** — Thread status updates use `**Status updated:** <emoji> Status`; checks use `**Status updated:** ✅ {name} passed`; reviews use `**Review submitted:** <emoji> Approved — [user](link)`
+
+### Fixed
+
+- **Duplicate check messages** — Post per-check with workflow name (`**Status updated:** ✅ {name} passed`); dedupe by (commit, check name) so each workflow posts once
+
 ## [0.1.6] - 2026-03-16
 
 ### Added
@@ -137,7 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Test suite** — pytest tests for app, handlers, models, security, PR tracker, deploy trackers
 - **Project scaffolding** — pyproject.toml (uv, FastAPI, pydantic, pachca), .gitignore, LICENSE (MIT), README with setup and usage docs
 
-[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.6...HEAD
+[unreleased]: https://github.com/Misery7100/pachca-bot/compare/v0.1.7...HEAD
+[0.1.7]: https://github.com/Misery7100/pachca-bot/compare/v0.1.6...v0.1.7
 [0.1.6]: https://github.com/Misery7100/pachca-bot/compare/v0.1.5...v0.1.6
 [0.1.5]: https://github.com/Misery7100/pachca-bot/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/Misery7100/pachca-bot/compare/v0.1.3...v0.1.4

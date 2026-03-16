@@ -20,7 +20,7 @@ from pachca_bot.integrations.github.models import (
 class TestStatusUpdate:
     def test_format_has_emoji_and_bold(self):
         result = render_status_update("📝", "Draft", "🆕", "Open")
-        assert "Status updated:\n\n**Before:** 📝 Draft\n**After:** 🆕 Open" == result
+        assert result == "**Status updated:** 🆕 Open"
 
 
 class TestPatchStatus:
@@ -106,8 +106,7 @@ class TestPRMessage:
     def test_thread_update_has_emoji(self):
         pr = self._make_pr(PRStatus.READY_FOR_REVIEW)
         update = pr.to_thread_update(old_status=PRStatus.OPEN)
-        assert "**Before:** 🆕 Open" in update
-        assert "**After:** 👀 Ready for review" in update
+        assert "**Status updated:** 👀 Ready for review" == update
 
     def test_reopened_status(self):
         pr = self._make_pr(PRStatus.REOPENED)
@@ -166,8 +165,7 @@ class TestGHDeployMessage:
             state="success",
         )
         update = m.to_thread_update(GHDeployState.PENDING)
-        assert "**Before:** ⏳ Pending" in update
-        assert "**After:** ✅ Success" in update
+        assert "**Status updated:** ✅ Success" == update
 
     def test_patch_status(self):
         m = GitHubDeploymentMessage(
@@ -221,8 +219,7 @@ class TestGenericDeploy:
             status=DeployStatus.SUCCEEDED,
         )
         update = m.to_thread_update(DeployStatus.STARTED)
-        assert "**Before:** 🚀 Started" in update
-        assert "**After:** ✅ Succeeded" in update
+        assert "**Status updated:** ✅ Succeeded" == update
 
     def test_patch_status(self):
         m = GenericDeployMessage(

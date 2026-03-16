@@ -12,7 +12,7 @@ On each PR status change the tracker:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pachca_bot.core.client import PachcaClient
 from pachca_bot.core.config import IntegrationConfig
@@ -32,6 +32,8 @@ class _PREntry:
     content: str = ""
     checks_passed: bool = False
     has_approval: bool = False
+    # (commit_sha, check_name) pairs we've already posted (dedupe per-check)
+    checks_passed_posted: set[tuple[str, str]] = field(default_factory=set)
 
 
 class PRTracker:
@@ -105,9 +107,14 @@ class PRTracker:
             return None
 
     def handle_check_suite_pass(
-        self, repo: str, number: int, commit_sha: str, checks_url: str = ""
+        self,
+        repo: str,
+        number: int,
+        commit_sha: str,
+        check_name: str = "Checks",
+        checks_url: str = "",
     ) -> dict | None:
-        """Post 'All checks passed' to thread, set checks_passed.
+        """Post per-check pass to thread, set checks_passed.
         Promote to Ready to merge only if has_approval."""
         key = self._make_key(repo, number)
         entry = self._store.get(key)
@@ -119,23 +126,32 @@ class PRTracker:
         if entry is None:
             return None
         entry.checks_passed = True
-        check_msg = GitHubCheckSuitePassedMessage(
-            repo=repo, commit_sha=commit_sha, url=checks_url
-        )
-        try:
-            thread = self._client.create_thread(entry.message_id)
-            thread_id = thread.get("id")
-            if thread_id:
-                self._client.post_to_thread(
-                    thread_id,
-                    check_msg.to_thread_content(),
-                    display_name=self._integration.display_name,
-                    display_avatar_url=self._integration.display_avatar_url,
-                )
-        except Exception:
-            logger.warning(
-                "Failed to post check suite pass to PR #%s thread", number, exc_info=True
+        posted_key = (commit_sha, check_name)
+        if posted_key not in entry.checks_passed_posted:
+            entry.checks_passed_posted.add(posted_key)
+            check_msg = GitHubCheckSuitePassedMessage(
+                repo=repo,
+                commit_sha=commit_sha,
+                check_name=check_name,
+                url=checks_url,
             )
+            try:
+                thread = self._client.create_thread(entry.message_id)
+                thread_id = thread.get("id")
+                if thread_id:
+                    self._client.post_to_thread(
+                        thread_id,
+                        check_msg.to_thread_content(),
+                        display_name=self._integration.display_name,
+                        display_avatar_url=self._integration.display_avatar_url,
+                    )
+            except Exception:
+                logger.warning(
+                    "Failed to post check suite pass to PR #%s thread",
+                    number,
+                    exc_info=True,
+                )
+                entry.checks_passed_posted.discard(posted_key)
         if entry.has_approval and entry.status != PRStatus.CHECKS_PASSED:
             try:
                 if not entry.content and not self._ensure_entry_content(entry):
@@ -262,6 +278,7 @@ class PRTracker:
             entry.status = PRStatus.READY_FOR_REVIEW
             entry.content = new_content
             entry.checks_passed = False
+            entry.checks_passed_posted.clear()
             return True
         except Exception:
             logger.warning(
@@ -308,6 +325,7 @@ class PRTracker:
         if pr_msg.status == PRStatus.READY_FOR_REVIEW:
             entry.checks_passed = False
             entry.has_approval = False
+            entry.checks_passed_posted.clear()
 
         old_status = entry.status
         if old_status == pr_msg.status:

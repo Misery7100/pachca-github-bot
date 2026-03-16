@@ -46,8 +46,7 @@ class TestPRTrackerUpdate:
         tracker.handle_pr_event(_make_pr(status=PRStatus.OPEN))
 
         thread_text = client.post_to_thread.call_args[0][1]
-        assert "**Before:** 📝 Draft" in thread_text
-        assert "**After:** 🆕 Open" in thread_text
+        assert "**Status updated:** 🆕 Open" in thread_text
 
     def test_patches_parent(self):
         tracker, client = _make_tracker()
@@ -150,7 +149,8 @@ class TestPRTrackerCIFailure:
         )
         assert result == {"id": 100}
         client.post_to_thread.assert_called_once()
-        assert "All checks passed" in client.post_to_thread.call_args[0][1]
+        assert "passed" in client.post_to_thread.call_args[0][1]
+        assert "Status updated" in client.post_to_thread.call_args[0][1]
         client.update_message.assert_not_called()
 
     def test_check_suite_pass_promotes_when_has_approval(self):
@@ -169,6 +169,36 @@ class TestPRTrackerCIFailure:
         assert result == {"id": 100}
         client.update_message.assert_called_once()
         assert "Ready to merge" in client.update_message.call_args[0][1]
+
+    def test_check_suite_pass_dedupes_same_commit_and_name(self):
+        """Multiple check_suite events for same commit+check_name post only once."""
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.READY_FOR_REVIEW).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.READY_FOR_REVIEW, content=content
+        )
+        for _ in range(3):
+            tracker.handle_check_suite_pass(
+                repo="org/repo", number=1, commit_sha="abc123", check_name="CI"
+            )
+        assert client.post_to_thread.call_count == 1
+
+    def test_check_suite_pass_posts_per_check_name(self):
+        """Different check names post separate messages."""
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.READY_FOR_REVIEW).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.READY_FOR_REVIEW, content=content
+        )
+        tracker.handle_check_suite_pass(
+            repo="org/repo", number=1, commit_sha="abc123", check_name="CI"
+        )
+        tracker.handle_check_suite_pass(
+            repo="org/repo", number=1, commit_sha="abc123", check_name="Lint"
+        )
+        assert client.post_to_thread.call_count == 2
+        assert "CI passed" in client.post_to_thread.call_args_list[0][0][1]
+        assert "Lint passed" in client.post_to_thread.call_args_list[1][0][1]
 
     def test_approval_promotes_when_checks_passed(self):
         """When approval received and checks already passed, promote to Ready to merge."""
