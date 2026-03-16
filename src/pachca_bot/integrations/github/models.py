@@ -208,7 +208,11 @@ class GitHubLabel(BaseModel, extra="allow"):
 
 
 class GitHubReview(BaseModel, extra="allow"):
-    state: str = ""
+    """Pull request review from pull_request_review webhook."""
+
+    state: str = ""  # approved, changes_requested, commented
+    body: str | None = None
+    html_url: str = ""
     user: GitHubUser = Field(default_factory=GitHubUser)
 
 
@@ -222,6 +226,7 @@ class GitHubCheckSuiteTop(BaseModel, extra="allow"):
     head_sha: str = ""
     status: str = ""
     conclusion: str | None = None
+    html_url: str = ""
     pull_requests: list[GitHubCheckSuitePR] = Field(default_factory=list)
 
 
@@ -317,6 +322,65 @@ class GitHubCIMessage(BaseModel):
         msg.add(FieldsBlock(fields=fields))
         msg.add(LinkBlock(text="View run", url=self.url))
         return msg
+
+
+class GitHubCheckSuitePassedMessage(BaseModel):
+    """Message for check_suite success posted to PR thread."""
+
+    repo: str
+    commit_sha: str
+    url: str = ""
+
+    def to_thread_content(self) -> str:
+        commit_link = gh_commit_link(self.repo, self.commit_sha)
+        lines = [f"✅ **All checks passed** — {commit_link}"]
+        if self.url:
+            lines.append("")
+            lines.append(f"[View checks]({self.url})")
+        return "\n".join(lines)
+
+
+REVIEW_STATE_EMOJI: dict[str, str] = {
+    "approved": "✅",
+    "changes_requested": "🔴",
+    "commented": "💬",
+    "dismissed": "❌",
+}
+
+
+class GitHubPRReviewMessage(BaseModel):
+    """Message for pull_request_review events posted to PR thread."""
+
+    repo: str
+    pr_number: int
+    pr_url: str
+    action: str  # submitted, edited, dismissed
+    reviewer: str
+    state: str  # approved, changes_requested, commented (empty when dismissed)
+    body: str = ""
+    review_url: str = ""
+
+    def to_thread_content(self) -> str:
+        emoji = REVIEW_STATE_EMOJI.get(self.state, "💬")
+        if self.action == "dismissed":
+            return f"❌ **Review dismissed** — {gh_user_link(self.reviewer)}'s review was dismissed"
+        state_label = {
+            "approved": "Approved",
+            "changes_requested": "Requested changes",
+            "commented": "Commented",
+        }.get(self.state, self.state or "Review")
+        lines = [f"{emoji} **Review {self.action}** — {gh_user_link(self.reviewer)}: {state_label}"]
+        if self.body:
+            # Truncate long bodies, strip markdown headings
+            body = strip_md_headings(self.body.strip())
+            if len(body) > 500:
+                body = body[:497] + "..."
+            lines.append("")
+            lines.append(body)
+        if self.review_url:
+            lines.append("")
+            lines.append(f"[View review]({self.review_url})")
+        return "\n".join(lines)
 
 
 class GitHubPRMessage(BaseModel):

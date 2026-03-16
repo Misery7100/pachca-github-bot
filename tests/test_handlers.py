@@ -9,7 +9,7 @@ from pachca_bot.integrations.generic.models import GenericWebhookPayload, Severi
 from pachca_bot.integrations.github.gh_deploy_tracker import GHDeployTracker
 from pachca_bot.integrations.github.handler import GitHubHandler
 from pachca_bot.integrations.github.models import GitHubWebhookPayload, PRStatus
-from pachca_bot.integrations.github.pr_tracker import PRTracker
+from pachca_bot.integrations.github.pr_tracker import PRTracker, _PREntry
 
 _GH_INTEGRATION = IntegrationConfig(
     chat_id=12345,
@@ -123,6 +123,99 @@ class TestGitHubHandler:
         )
         result = handler._process("ping", payload)
         assert isinstance(result, StructuredMessage)
+
+    def test_pull_request_review_posted_to_thread(self):
+        tracker = _make_mock_pr_tracker()
+        tracker._store[("org/repo", 12)] = MagicMock(
+            message_id=100, status=PRStatus.OPEN, content=""
+        )
+        tracker._client.create_thread.return_value = {"id": 200}
+        handler = _make_github_handler(pr_tracker=tracker)
+        payload = GitHubWebhookPayload.model_validate(
+            {
+                "action": "submitted",
+                "repository": {"full_name": "org/repo"},
+                "pull_request": {
+                    "number": 12,
+                    "html_url": "https://github.com/org/repo/pull/12",
+                },
+                "review": {
+                    "state": "approved",
+                    "body": "LGTM!",
+                    "html_url": "https://github.com/org/repo/pull/12#pullrequestreview-1",
+                    "user": {"login": "bob"},
+                },
+            }
+        )
+        result = handler._process("pull_request_review", payload)
+        assert result == {"id": None, "posted_to_pr_thread": True}
+        tracker._client.post_to_thread.assert_called_once()
+        content = tracker._client.post_to_thread.call_args[0][1]
+        assert "approved" in content.lower() or "Approved" in content
+        assert "bob" in content
+        assert "LGTM!" in content
+
+    def test_pull_request_review_dismissed(self):
+        tracker = _make_mock_pr_tracker()
+        tracker._store[("org/repo", 5)] = MagicMock(
+            message_id=100, status=PRStatus.OPEN, content=""
+        )
+        tracker._client.create_thread.return_value = {"id": 200}
+        handler = _make_github_handler(pr_tracker=tracker)
+        payload = GitHubWebhookPayload.model_validate(
+            {
+                "action": "dismissed",
+                "repository": {"full_name": "org/repo"},
+                "pull_request": {"number": 5, "html_url": "https://github.com/org/repo/pull/5"},
+                "review": {
+                    "state": "changes_requested",
+                    "user": {"login": "alice"},
+                },
+            }
+        )
+        result = handler._process("pull_request_review", payload)
+        assert result == {"id": None, "posted_to_pr_thread": True}
+        content = tracker._client.post_to_thread.call_args[0][1]
+        assert "dismissed" in content.lower()
+        assert "alice" in content
+
+    def test_check_suite_pass_posts_to_thread(self):
+        tracker = _make_mock_pr_tracker()
+        tracker._store[("org/repo", 3)] = _PREntry(
+            message_id=100,
+            status=PRStatus.READY_FOR_REVIEW,
+            content="",
+        )
+        handler = _make_github_handler(pr_tracker=tracker)
+        payload = GitHubWebhookPayload.model_validate(
+            {
+                "action": "completed",
+                "repository": {"full_name": "org/repo"},
+                "check_suite": {
+                    "conclusion": "success",
+                    "head_sha": "abc123",
+                    "html_url": "https://github.com/org/repo/commit/abc123/checks",
+                    "pull_requests": [{"number": 3}],
+                },
+            }
+        )
+        result = handler._process("check_suite", payload)
+        assert isinstance(result, dict)
+        tracker._client.post_to_thread.assert_called_once()
+        assert "All checks passed" in tracker._client.post_to_thread.call_args[0][1]
+
+    def test_pull_request_review_no_tracker_ignored(self):
+        handler = _make_github_handler(pr_tracker=None)
+        payload = GitHubWebhookPayload.model_validate(
+            {
+                "action": "submitted",
+                "repository": {"full_name": "org/repo"},
+                "pull_request": {"number": 1},
+                "review": {"state": "approved", "user": {"login": "x"}},
+            }
+        )
+        result = handler._process("pull_request_review", payload)
+        assert result is None
 
 
 class TestGenericHandler:

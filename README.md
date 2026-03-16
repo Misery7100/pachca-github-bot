@@ -94,10 +94,11 @@ Set this as the `GITHUB__WEBHOOK_SECRET` environment variable for the bot.
    - **Content type**: `application/json`
    - **Secret**: paste the secret from Step 2
 3. Under **"Which events would you like to trigger this webhook?"**, select **"Let me select individual events"** and check:
-   - ✅ **Check suites** — for PR check status tracking (marks PRs as "Ready to merge")
+   - ✅ **Check suites** — for PR check status (posts "All checks passed" to thread; promotes to "Ready to merge" only with approval)
    - ✅ **Deployments** — for deployment notifications
    - ✅ **Deployment statuses** — for deployment status updates
    - ✅ **Pull requests** — for PR lifecycle (draft, opened, ready for review, merged, closed)
+   - ✅ **Pull request reviews** — for review submitted, edited, or dismissed (posted to PR thread)
    - ✅ **Releases** — for release notifications
    - ✅ **Workflow runs** — for CI failure notifications
 4. Optionally also check:
@@ -112,8 +113,9 @@ GitHub will send a `ping` event to verify the webhook is working. You should see
 | Event | Actions | What it does |
 |---|---|---|
 | `release` | `published` | Posts release notification with changelog |
-| `pull_request` | `opened`, `closed`, `reopened`, `ready_for_review`, `converted_to_draft` | Creates/updates PR message with thread-based status tracking |
-| `check_suite` | `completed` (success) | Marks associated PRs as "Ready to merge" |
+| `pull_request` | `opened`, `closed`, `reopened`, `ready_for_review`, `converted_to_draft`, `synchronize` | Creates/updates PR message with thread-based status tracking |
+| `pull_request_review` | `submitted`, `edited`, `dismissed` | Posts review (approved/changes requested/commented) to PR thread |
+| `check_suite` | `completed` (success) | Posts "All checks passed" to PR thread; promotes to "Ready to merge" only if approval exists |
 | `workflow_run` | `completed` (failure/cancelled) | Posts CI failure — to PR thread if associated, otherwise to channel |
 | `check_run` | `completed` (failure) | Posts individual check failure notification |
 | `deployment` | `created` | Posts deployment notification |
@@ -128,17 +130,21 @@ The bot tracks pull requests through their full lifecycle using **thread-based m
 | Draft | 📝 | PR opened with `draft: true` |
 | Open | 🆕 | PR opened (non-draft) or reopened |
 | Ready for review | 👀 | PR marked as ready for review |
-| Ready to merge | ✅ | All check suites passed |
+| Ready to merge | ✅ | All checks passed **and** at least one approval |
 | Merged | 🟣 | PR closed with `merged: true` |
 | Closed | 🚫 | PR closed without merge |
 
 **How it works:**
 1. When a new PR is created (draft or regular), the bot posts a parent message to the channel
-2. On each subsequent status change, the bot:
+2. When all checks pass, "All checks passed" is posted to the thread; parent stays "Ready for review" until an approval is received
+3. Reviews (approved, changes requested, commented, dismissed) are posted as thread replies; an approval promotes to "Ready to merge" when checks have passed
+4. On each subsequent status change, the bot:
    - Creates a thread on the parent message (if not already created)
    - Posts a structured status transition reply in the thread ("Status updated: Before: ... / After: ...")
    - Patches the parent message header/status (preserving body, author, branches)
-3. If the parent message was deleted, the bot creates a new one on the next update
+5. If the parent message was deleted, the bot creates a new one on the next update
+
+For repos that don't require reviews, the parent stays "Ready for review" until merged; the thread still shows "All checks passed" when CI is green.
 
 ---
 
@@ -298,16 +304,17 @@ Pre-built composite actions in `actions/` for easy integration in any workflow.
 
 ```bash
 uv sync
-just check     # lint + test
-just run       # start server
-just format    # auto-format
+just test            # run tests
+just run             # start server
+uv run ruff check src/   # lint
+uv run ruff format      # format
 ```
 
 ### Testing
 
 ```bash
-just test            # run all tests
-just lint            # lint check
+just test                      # run all tests
+uv run ruff check src/         # lint
 uv run pytest -v -k "test_pr"  # run specific tests
 ```
 

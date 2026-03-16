@@ -9,11 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- ...
+- **pull_request_review events** — Reviews (submitted, edited, dismissed) are posted to the PR thread: approved, changes requested, commented, or dismissed
+- **Ready to merge only when checks + approval** — "Ready to merge" is now set only when both (a) all checks passed and (b) at least one approval. Check suite pass alone posts "All checks passed" to the thread and keeps parent at "Ready for review". Approval promotes to "Ready to merge"; changes_requested or dismissed downgrades back to "Ready for review"
 
 ### Changed
 
-- ...
+- **check_suite behavior** — No longer promotes to "Ready to merge" on checks pass alone; posts "All checks passed" to thread instead. Promotes only when approval exists (or when approval arrives after checks pass)
 
 ### Removed
 

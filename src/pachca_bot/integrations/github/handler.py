@@ -14,6 +14,7 @@ from pachca_bot.integrations.github.models import (
     GitHubCIMessage,
     GitHubDeploymentMessage,
     GitHubPRMessage,
+    GitHubPRReviewMessage,
     GitHubReleaseMessage,
     GitHubWebhookPayload,
     HeaderBlock,
@@ -188,6 +189,39 @@ class GitHubHandler:
                 return {"id": None, "posted_to_pr_thread": True}
             return ci_msg.to_structured()
 
+        if (
+            event_type == "pull_request_review"
+            and payload.review is not None
+            and payload.pull_request is not None
+        ):
+            rev = payload.review
+            pr = payload.pull_request
+            pr_num = pr.number
+            review_msg = GitHubPRReviewMessage(
+                repo=repo,
+                pr_number=pr_num,
+                pr_url=pr.html_url or f"https://github.com/{repo}/pull/{pr_num}",
+                action=payload.action,
+                reviewer=rev.user.login or payload.sender.login,
+                state=rev.state if payload.action != "dismissed" else "",
+                body=rev.body or "",
+                review_url=rev.html_url or "",
+            )
+            if self.pr_tracker is not None:
+                self.pr_tracker.record_review_state(
+                    repo, pr_num, rev.state if payload.action != "dismissed" else ""
+                )
+                thread_id = self.pr_tracker.get_thread_id_for_pr(repo, pr_num)
+                if thread_id is not None:
+                    self.pr_tracker._client.post_to_thread(
+                        thread_id,
+                        review_msg.to_thread_content(),
+                        display_name=self.integration.display_name,
+                        display_avatar_url=self.integration.display_avatar_url,
+                    )
+                    return {"id": None, "posted_to_pr_thread": True}
+            return None
+
         if event_type == "pull_request" and payload.pull_request is not None:
             pr = payload.pull_request
             status = _resolve_pr_status(payload.action, pr.merged, pr.draft)
@@ -216,18 +250,11 @@ class GitHubHandler:
                 return None
             result = None
             for pr_ref in cs.pull_requests:
-                pr_msg = GitHubPRMessage(
+                result = self.pr_tracker.handle_check_suite_pass(
                     repo=repo,
                     number=pr_ref.number,
-                    title="",
-                    author="",
-                    url=f"https://github.com/{repo}/pull/{pr_ref.number}",
-                    base_branch="",
-                    head_branch="",
-                    status=PRStatus.CHECKS_PASSED,
-                )
-                result = self.pr_tracker.handle_pr_event(
-                    pr_msg, create_if_missing=False
+                    commit_sha=cs.head_sha,
+                    checks_url=cs.html_url or "",
                 )
             return result
 

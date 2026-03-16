@@ -132,19 +132,58 @@ class TestPRTrackerCIFailure:
         """When check_suite fires but PR message is outside scan window, do not create one with blank Author/Branch."""
         tracker, client = _make_tracker()
         client.get_messages.return_value = []
-        minimal_pr = GitHubPRMessage(
-            repo="org/repo",
-            number=1,
-            title="",
-            author="",
-            url="https://github.com/org/repo/pull/1",
-            base_branch="",
-            head_branch="",
-            status=PRStatus.CHECKS_PASSED,
+        result = tracker.handle_check_suite_pass(
+            repo="org/repo", number=1, commit_sha="abc123"
         )
-        result = tracker.handle_pr_event(minimal_pr, create_if_missing=False)
         assert result is None
         client.send_message.assert_not_called()
+
+    def test_check_suite_pass_posts_to_thread_does_not_promote_without_approval(self):
+        """When checks pass but no approval, post to thread and keep Ready for review."""
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.READY_FOR_REVIEW).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100, status=PRStatus.READY_FOR_REVIEW, content=content
+        )
+        result = tracker.handle_check_suite_pass(
+            repo="org/repo", number=1, commit_sha="abc123"
+        )
+        assert result == {"id": 100}
+        client.post_to_thread.assert_called_once()
+        assert "All checks passed" in client.post_to_thread.call_args[0][1]
+        client.update_message.assert_not_called()
+
+    def test_check_suite_pass_promotes_when_has_approval(self):
+        """When checks pass and approval exists, promote to Ready to merge."""
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.READY_FOR_REVIEW).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100,
+            status=PRStatus.READY_FOR_REVIEW,
+            content=content,
+            has_approval=True,
+        )
+        result = tracker.handle_check_suite_pass(
+            repo="org/repo", number=1, commit_sha="abc123"
+        )
+        assert result == {"id": 100}
+        client.update_message.assert_called_once()
+        assert "Ready to merge" in client.update_message.call_args[0][1]
+
+    def test_approval_promotes_when_checks_passed(self):
+        """When approval received and checks already passed, promote to Ready to merge."""
+        tracker, client = _make_tracker()
+        content = _make_pr(status=PRStatus.READY_FOR_REVIEW).to_parent()
+        tracker._store[("org/repo", 1)] = _PREntry(
+            message_id=100,
+            status=PRStatus.READY_FOR_REVIEW,
+            content=content,
+            checks_passed=True,
+        )
+        promoted = tracker.record_approval_and_maybe_promote("org/repo", 1)
+        assert promoted is True
+        client.update_message.assert_called_once()
+        assert "Ready to merge" in client.update_message.call_args[0][1]
 
     def test_does_not_overwrite_with_minimal_when_content_empty(self):
         """When entry has no stored content and pr_msg is minimal, skip parent update to avoid corruption."""

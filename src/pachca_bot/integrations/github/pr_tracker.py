@@ -16,7 +16,11 @@ from dataclasses import dataclass
 
 from pachca_bot.core.client import PachcaClient
 from pachca_bot.core.config import IntegrationConfig
-from pachca_bot.integrations.github.models import GitHubPRMessage, PRStatus
+from pachca_bot.integrations.github.models import (
+    GitHubCheckSuitePassedMessage,
+    GitHubPRMessage,
+    PRStatus,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +30,8 @@ class _PREntry:
     message_id: int
     status: PRStatus
     content: str = ""
+    checks_passed: bool = False
+    has_approval: bool = False
 
 
 class PRTracker:
@@ -98,6 +104,138 @@ class PRTracker:
         except Exception:
             return None
 
+    def handle_check_suite_pass(
+        self, repo: str, number: int, commit_sha: str, checks_url: str = ""
+    ) -> dict | None:
+        """Post 'All checks passed' to thread, set checks_passed.
+        Promote to Ready to merge only if has_approval."""
+        key = self._make_key(repo, number)
+        entry = self._store.get(key)
+        if entry is None:
+            found = self._search_chat_for_pr(repo, number)
+            if found is not None:
+                entry = found
+                self._store[key] = entry
+        if entry is None:
+            return None
+        entry.checks_passed = True
+        check_msg = GitHubCheckSuitePassedMessage(
+            repo=repo, commit_sha=commit_sha, url=checks_url
+        )
+        try:
+            thread = self._client.create_thread(entry.message_id)
+            thread_id = thread.get("id")
+            if thread_id:
+                self._client.post_to_thread(
+                    thread_id,
+                    check_msg.to_thread_content(),
+                    display_name=self._integration.display_name,
+                    display_avatar_url=self._integration.display_avatar_url,
+                )
+        except Exception:
+            logger.warning(
+                "Failed to post check suite pass to PR #%s thread", number, exc_info=True
+            )
+        if entry.has_approval and entry.status != PRStatus.CHECKS_PASSED:
+            try:
+                if not entry.content and not self._ensure_entry_content(entry):
+                    refound = self._search_chat_for_pr(repo, number)
+                    if refound and refound.content:
+                        entry.content = refound.content
+                if entry.content:
+                    new_content = GitHubPRMessage.patch_parent_status(
+                        entry.content, PRStatus.CHECKS_PASSED
+                    )
+                    self._client.update_message(entry.message_id, new_content)
+                    entry.status = PRStatus.CHECKS_PASSED
+                    entry.content = new_content
+            except Exception:
+                logger.warning(
+                    "Failed to promote PR #%s to Ready to merge after check pass",
+                    number,
+                    exc_info=True,
+                )
+        return {"id": entry.message_id}
+
+    def record_review_state(self, repo: str, number: int, state: str) -> bool:
+        """Update has_approval from review state.
+        Promote to Ready to merge if approved and checks_passed.
+        state: approved, changes_requested, commented, or empty (dismissed).
+        Returns True if promoted."""
+        if state == "approved":
+            return self.record_approval_and_maybe_promote(repo, number)
+        if state in ("changes_requested", ""):
+            self._clear_approval(repo, number)
+        return False
+
+    def _clear_approval(self, repo: str, number: int) -> None:
+        key = self._make_key(repo, number)
+        entry = self._store.get(key)
+        if entry is None:
+            found = self._search_chat_for_pr(repo, number)
+            if found is not None:
+                entry = found
+                self._store[key] = entry
+        if entry is None:
+            return
+        entry.has_approval = False
+        if entry.status == PRStatus.CHECKS_PASSED:
+            try:
+                if not entry.content and not self._ensure_entry_content(entry):
+                    refound = self._search_chat_for_pr(repo, number)
+                    if refound and refound.content:
+                        entry.content = refound.content
+                if entry.content:
+                    new_content = GitHubPRMessage.patch_parent_status(
+                        entry.content, PRStatus.READY_FOR_REVIEW
+                    )
+                    self._client.update_message(entry.message_id, new_content)
+                    entry.status = PRStatus.READY_FOR_REVIEW
+                    entry.content = new_content
+            except Exception:
+                logger.warning(
+                    "Failed to downgrade PR #%s after approval cleared",
+                    number,
+                    exc_info=True,
+                )
+
+    def record_approval_and_maybe_promote(self, repo: str, number: int) -> bool:
+        """Set has_approval. Promote to Ready to merge only if checks_passed.
+        Returns True if promoted."""
+        key = self._make_key(repo, number)
+        entry = self._store.get(key)
+        if entry is None:
+            found = self._search_chat_for_pr(repo, number)
+            if found is not None:
+                entry = found
+                self._store[key] = entry
+        if entry is None:
+            return False
+        entry.has_approval = True
+        if not entry.checks_passed or entry.status == PRStatus.CHECKS_PASSED:
+            return False
+        try:
+            if not entry.content and not self._ensure_entry_content(entry):
+                refound = self._search_chat_for_pr(repo, number)
+                if refound and refound.content:
+                    entry.content = refound.content
+            if not entry.content:
+                return False
+            new_content = GitHubPRMessage.patch_parent_status(
+                entry.content, PRStatus.CHECKS_PASSED
+            )
+            self._client.update_message(entry.message_id, new_content)
+            entry.status = PRStatus.CHECKS_PASSED
+            entry.content = new_content
+            return True
+        except Exception:
+            logger.warning(
+                "Failed to promote PR #%s to Ready to merge after approval",
+                number,
+                exc_info=True,
+            )
+            return False
+
     def downgrade_status_on_ci_failure(self, repo: str, number: int) -> bool:
         """If PR is marked Ready to merge, downgrade to Ready for review when CI fails."""
         key = self._make_key(repo, number)
@@ -123,6 +261,7 @@ class PRTracker:
             self._client.update_message(entry.message_id, new_content)
             entry.status = PRStatus.READY_FOR_REVIEW
             entry.content = new_content
+            entry.checks_passed = False
             return True
         except Exception:
             logger.warning(
@@ -165,6 +304,10 @@ class PRTracker:
             if not create_if_missing:
                 return None
             return self._create_new(key, pr_msg)
+
+        if pr_msg.status == PRStatus.READY_FOR_REVIEW:
+            entry.checks_passed = False
+            entry.has_approval = False
 
         old_status = entry.status
         if old_status == pr_msg.status:
